@@ -5,9 +5,20 @@ import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Loader2 } from 'lucide-react'
 import Image from 'next/image'
+import { useState } from 'react'
 export default function DashboardPage() {
   const { session, isLoading, signOut } = useRequireAuth()
   const user = useAuthStore((state) => state.user)
+  const [isSigningOut, setIsSigningOut] = useState(false)
+  const handleSignOut = async () => {
+    setIsSigningOut(true)
+    try {
+      await signOut()
+    } catch (error) {
+      console.error('Failed to sign out:', error)
+      setIsSigningOut(false)
+    }
+  }
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -47,8 +58,19 @@ export default function DashboardPage() {
             </div>
           </div>
           <div className="flex gap-4 flex-wrap">
-            <Button variant="destructive" onClick={signOut}>
-              Logout
+            <Button 
+              variant="destructive" 
+              onClick={handleSignOut}
+              disabled={isSigningOut}
+            >
+              {isSigningOut ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Logging out...
+                </>
+              ) : (
+                'Logout'
+              )}
             </Button>
           </div>
         </div>
