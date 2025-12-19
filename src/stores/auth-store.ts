@@ -4,7 +4,7 @@ interface User {
   id: string
   email: string
   name: string
-  image: string | null
+  image?: string | null
   emailVerified: boolean
 }
 interface AuthState {

@@ -10,7 +10,7 @@ export function useAuth() {
   const { setUser, clearUser } = useAuthStore()
   useEffect(() => {
     if (session.data) {
-      setUser(session.data.user as any)
+      setUser(session.data.user)
     } else {
       clearUser()
     }
@@ -25,6 +25,7 @@ export function useAuth() {
       router.push('/login')
     } catch (error) {
       console.error('Sign out error:', error)
+      throw error
     }
   }
   return {

@@ -66,7 +66,8 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 ## Database Scripts
 
 - `bun run db:clear` - Clear all data from database
-- `bun run db:seed` - Clear database (seed creates users automatically via GitHub OAuth)
+- `bun run db:seed` - Clear all data (users are created automatically via GitHub OAuth on first login)
+- `bun run db:reset` - Clear database (runs db:clear and db:seed)
 
 ## Tech Stack
 

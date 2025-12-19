@@ -3,7 +3,7 @@ import { useRequireAuth } from '@/hooks/use-auth'
 import { useAuthStore } from '@/stores/auth-store'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Loader2, Github } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import Image from 'next/image'
 export default function DashboardPage() {
   const { session, isLoading, signOut } = useRequireAuth()
