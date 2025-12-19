@@ -1,6 +1,8 @@
 'use client'
+import { Button } from '@/components/ui/button'
 import { authClient } from '../lib/auth-client'
 import { useState } from 'react'
+import { Input } from '@/components/ui/input'
 
 export function SignupForm() {
   const [email, setEmail] = useState('')
@@ -24,10 +26,10 @@ export function SignupForm() {
   
   return (
     <form onSubmit={handleSignup}>
-      <input value={name} onChange={e => setName(e.target.value)} placeholder="Name" />
-      <input value={email} onChange={e => setEmail(e.target.value)} placeholder="Email" />
-      <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" />
-      <button type="submit">Login</button>
+      <Input value={name} onChange={e => setName(e.target.value)} placeholder="Name" />
+      <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Email" />
+      <Input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" />
+      <Button type="submit">Sign Up</Button>
     </form>
   )
 }
