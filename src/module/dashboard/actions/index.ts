@@ -1,7 +1,6 @@
 "use server";
 
 import { fetchUserContribution, getGithubToken } from "@/module/github/github";
-import { prisma } from "@/lib/prisma";
 import { Octokit } from "octokit";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
@@ -23,8 +22,8 @@ export async function getDashboardStats() {
 
   //todo to fetch total connected repos
   const totalRepos = 30;
-  const calender = await fetchUserContribution(token, user.login);
-  const totalCommits = calender?.totalContributions || 0;
+  const calendar = await fetchUserContribution(token, user.login);
+  const totalCommits = calendar?.contributionCalendar?.totalContributions || 0;
 
   const { data: prs } = await octokit.rest.search.issuesAndPullRequests({
     q: `is:pr author:${user.login} `,
@@ -59,7 +58,7 @@ export async function getMonthlyActivity() {
 
     const { data: user } = await octokit.rest.users.getAuthenticated();
 
-    const calender = await fetchUserContribution(token, user.login);
+    const calendar = await fetchUserContribution(token, user.login);
 
     const monthlyData: {
       [key: string]: { commits: number; prs: number; reviews: number };
@@ -87,8 +86,8 @@ export async function getMonthlyActivity() {
       monthlyData[monthKey] = { commits: 0, prs: 0, reviews: 0 };
     }
 
-    calender?.weeks.forEach((week) => {
-      week.contributionDays.forEach((day) => {
+    calendar?.contributionCalendar?.weeks.forEach((week:any) => {
+      week.contributionDays.forEach((day:any) => {
         const date = new Date(day.date);
         const monthKey = `${
           monthsNames[date.getMonth()]

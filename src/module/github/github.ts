@@ -2,7 +2,6 @@ import { Octokit } from "octokit";
 import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { headers } from "next/headers.js";
-import { tr } from "date-fns/locale";
 
 export const getGithubToken = async () => {
   const session = await auth.api.getSession({
