@@ -10,7 +10,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Github } from "lucide-react"
-import { authClient } from "@/features/auth"
+import { authClient } from "@/lib/auth-client"
 import { toast } from "sonner"
 interface GithubLinkDialogProps {
   open: boolean

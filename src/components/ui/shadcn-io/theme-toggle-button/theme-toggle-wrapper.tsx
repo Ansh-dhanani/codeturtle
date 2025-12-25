@@ -8,7 +8,7 @@ type ThemeToggleWrapperProps = Omit<ThemeToggleButtonProps, 'theme' | 'onClick'>
 };
 export function ThemeToggleWrapper({
   variant = 'circle',
-  start = 'center',
+  start = 'top-right',
   showLabel = false,
   className,
   url,

@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { authClient } from '@/features/auth'
+import { authClient } from '@/lib/auth-client'
 import { useAuthStore } from '@/stores/auth-store'
 import { toast } from 'sonner'
 export function useAuth() {
@@ -24,6 +24,7 @@ export function useAuth() {
       router.push('/login')
     } catch (error) {
       console.error('Sign out error:', error)
+      toast.error('Failed to sign out. Please try again.')
       throw error
     }
   }

@@ -6,6 +6,7 @@ import {
   Book,
 } from "lucide-react";
 import { TicketPercentIcon } from "./ui/icons/lucide-ticket-percent";
+import Link from "next/link";
 import {
   Sidebar,
   SidebarContent,
@@ -71,10 +72,10 @@ export function AppSidebar() {
               {generalItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild>
-                    <a href={item.url}>
+                    <Link href={item.url}>
                       <item.icon />
                       <span>{item.title}</span>
-                    </a>
+                    </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
@@ -89,10 +90,10 @@ export function AppSidebar() {
               {otherItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild>
-                    <a href={item.url}>
+                    <Link href={item.url}>
                       <item.icon />
                       <span>{item.title}</span>
-                    </a>
+                    </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}

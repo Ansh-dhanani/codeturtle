@@ -29,14 +29,15 @@ import { useState } from "react"
 import { toast } from "sonner"
 import { Spinner } from "@/components/ui/spinner"
 import { useRequireAuth } from "@/hooks/use-auth"
-import { authClient } from "@/features/auth"
 import Link from "next/link"
+import { ThemeToggleButton, useThemeToggle } from "./ui/shadcn-io/theme-toggle-button"
 
 export const SidebarFooterContent = memo(function SidebarFooterContent() {
     const user = useAuthStore((state) => state.user)
     const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
     const avatarFallback = user?.email?.[0]?.toUpperCase() || 'U'
 
+    const { toggle, theme: currentTheme } = useThemeToggle('top-right')
   
   const { signOut } = useRequireAuth()
   const [isSigningOut, setIsSigningOut] = useState(false)
@@ -44,6 +45,8 @@ export const SidebarFooterContent = memo(function SidebarFooterContent() {
   
   const { data: githubAccount, isLoading: githubLoading } = useGithubAccount()
   const unlinkGithub = useUnlinkGithubAccount()
+
+  const handleThemeToggle = toggle
 
   // Show loading state if user data is not yet available
   if (!isAuthenticated || !user) {
@@ -141,46 +144,10 @@ export const SidebarFooterContent = memo(function SidebarFooterContent() {
             <Link href="/account">Account</Link>
           </DropdownMenuItem>
 
-          {/* {githubAccount ? (
-            <DropdownMenuItem
-              onClick={() => unlinkGithub.mutate()}
-              disabled={unlinkGithub.isPending}
-              className="text-orange-600"
-            >
-              <Unlink className="mr-2 h-4 w-4" />
-              {unlinkGithub.isPending ? 'Unlinking...' : 'Unlink GitHub'}
-            </DropdownMenuItem>
-          ) : (
-            <DropdownMenuItem
-              onClick={() => {
-                authClient.signIn.social({
-                  provider: "github",
-                  callbackURL: window.location.href,
-                })
-              }}
-              disabled={githubLoading}
-            >
-              <Github className="mr-2 h-4 w-4" />
-              {githubLoading ? 'Loading...' : 'Link GitHub'}
-            </DropdownMenuItem>
-          )} */}
-
-          {/* <DropdownMenuItem>
-            <Bell className="mr-2 h-4 w-4" />
-            Notifications
+          <DropdownMenuItem onClick={handleThemeToggle}>
+            <ThemeToggleButton theme={currentTheme === 'dark' ? 'dark' : 'light'} className="mr-2 h-4 w-4"/>
+            <span>Theme</span>
           </DropdownMenuItem>
-
-          <DropdownMenuItem>
-            <CreditCard className="mr-2 h-4 w-4" />
-            Billing
-          </DropdownMenuItem>
-
-          <DropdownMenuSeparator />
-
-          <DropdownMenuItem>
-            <Sparkles className="mr-2 h-4 w-4" />
-            Upgrade to Pro
-          </DropdownMenuItem> */}
 
           <DropdownMenuSeparator />
 

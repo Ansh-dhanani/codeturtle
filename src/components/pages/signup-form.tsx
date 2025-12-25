@@ -1,46 +1,36 @@
 'use client'
-import { authClient } from '../lib/auth-client'
-import { useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Github } from 'lucide-react'
+import { Loader2, Github } from 'lucide-react'
 import { useRedirectIfAuthenticated } from '@/hooks/use-auth'
-import { toast } from 'sonner'
-import { Spinner } from '@/components/ui/spinner'
-export function SigninForm() {
+import { authenticateWithGithub } from '@/utils/auth'
+export function SignupForm() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const { isLoading: isCheckingAuth } = useRedirectIfAuthenticated('/dashboard')
-
   if (isCheckingAuth) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Spinner/>
+      <div className="flex min-h-screen items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardContent className="py-8">
+            <div className="flex justify-center">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          </CardContent>
+        </Card>
       </div>
     )
   }
-
-  const handleGithubSignin = async () => {
+  const handleGithubSignup = async () => {
     setIsLoading(true)
     setError('')
-    
     try {
-      toast.promise(
-        authClient.signIn.social({
-          provider: 'github',
-          callbackURL: '/dashboard',
-        }),
-        {
-          loading: 'Signing in with GitHub...',
-          success: 'Redirecting to GitHub...' ,
-          error: (err) => err?.message || 'Failed to sign in with GitHub'
-        }
-      )
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to sign in with GitHub'
+      await authenticateWithGithub()
+    } catch (err: any) {
+      const errorMessage = err?.message || 'Failed to sign up with GitHub';
       setError(errorMessage)
-      console.error('GitHub sign-in error:', err)
-    } finally {
+      console.error('GitHub sign-up error:', err)
       setIsLoading(false)
     }
   }
@@ -48,9 +38,9 @@ export function SigninForm() {
     <div className="flex min-h-screen items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1 text-center">
-          <CardTitle className="text-2xl font-bold">Welcome to CodeTurtle</CardTitle>
+          <CardTitle className="text-2xl font-bold">Create your account</CardTitle>
           <CardDescription>
-            Sign in with your GitHub account to get started
+            Sign up with your GitHub account to get started
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -64,11 +54,11 @@ export function SigninForm() {
             variant="default"
             size="lg"
             className="w-full"
-            onClick={handleGithubSignin}
+            onClick={handleGithubSignup}
             disabled={isLoading}
           >
             {isLoading ? (
-              <Spinner />
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <Github className="mr-2 h-4 w-4" />
             )}

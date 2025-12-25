@@ -1,39 +1,35 @@
 'use client'
-import { Button } from '@/components/ui/button'
-import { authClient } from '../lib/auth-client'
 import { useState } from 'react'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Loader2, Github } from 'lucide-react'
+import { Github } from 'lucide-react'
 import { useRedirectIfAuthenticated } from '@/hooks/use-auth'
-export function SignupForm() {
+import { Spinner } from '@/components/ui/spinner'
+import { authenticateWithGithub } from '@/utils/auth'
+export function SigninForm() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const { isLoading: isCheckingAuth } = useRedirectIfAuthenticated('/dashboard')
+
   if (isCheckingAuth) {
     return (
-      <div className="flex min-h-screen items-center justify-center p-4">
-        <Card className="w-full max-w-md">
-          <CardContent className="py-8">
-            <div className="flex justify-center">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-          </CardContent>
-        </Card>
+      <div className="flex min-h-screen items-center justify-center">
+        <Spinner/>
       </div>
     )
   }
-  const handleGithubSignup = async () => {
+
+  const handleGithubSignin = async () => {
     setIsLoading(true)
     setError('')
+    
     try {
-      await authClient.signIn.social({
-        provider: 'github',
-        callbackURL: '/dashboard',
-      })
-    } catch (err: any) {
-      const errorMessage = err?.message || 'Failed to sign up with GitHub';
+      await authenticateWithGithub()
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to sign in with GitHub'
       setError(errorMessage)
-      console.error('GitHub sign-up error:', err)
+      console.error('GitHub sign-in error:', err)
+    } finally {
       setIsLoading(false)
     }
   }
@@ -41,9 +37,9 @@ export function SignupForm() {
     <div className="flex min-h-screen items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1 text-center">
-          <CardTitle className="text-2xl font-bold">Create your account</CardTitle>
+          <CardTitle className="text-2xl font-bold">Welcome to CodeTurtle</CardTitle>
           <CardDescription>
-            Sign up with your GitHub account to get started
+            Sign in with your GitHub account to get started
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -57,11 +53,11 @@ export function SignupForm() {
             variant="default"
             size="lg"
             className="w-full"
-            onClick={handleGithubSignup}
+            onClick={handleGithubSignin}
             disabled={isLoading}
           >
             {isLoading ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Spinner />
             ) : (
               <Github className="mr-2 h-4 w-4" />
             )}
