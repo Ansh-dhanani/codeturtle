@@ -103,7 +103,7 @@ export const useThemeToggle = (start: StartPosition = 'top-right') => {
     }, 3000);
 
     if ('startViewTransition' in document) {
-      (document as any).startViewTransition(() => {
+      (document as Document & { startViewTransition: (callback: () => void) => void }).startViewTransition(() => {
         if (theme) {
           setTheme(theme === 'dark' ? 'light' : 'dark');
         }

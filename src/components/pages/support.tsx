@@ -3,10 +3,8 @@ import { Poppins } from "next/font/google";
 import { Card } from "../ui/card";
 import {
   Book,
-  Clock,
   HeartPlus,
   PersonStanding,
-  PersonStandingIcon,
 } from "lucide-react";
 import Link from "next/link";
 import ContactForm from "../contact-form";

@@ -7,7 +7,7 @@ interface CheckboxProps {
   onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
-const Checkbox: React.FC<CheckboxProps> = ({ onChange }) => {
+const TorchCheckbox: React.FC<CheckboxProps> = ({ onChange }) => {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) {
       const count = parseInt(localStorage.getItem('torchCount') || '0', 10) + 1;
@@ -358,4 +358,4 @@ const StyledWrapper = styled.div`
     filter: none;
   }`;
 
-export default Checkbox;
+export default TorchCheckbox;

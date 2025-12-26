@@ -26,12 +26,12 @@ export async function getContributionGraph() {
     throw new Error("Failed to fetch contribution data");
   }
 
-  const contributions= calendar.weeks.flatMap((week: any) =>
-      week.contributionDays.map((day: any) => ({
+  const contributions = calendar.weeks.flatMap((week: { contributionDays: { date: string; contributionCount: number; color: string }[] }) =>
+      week.contributionDays.map((day: { date: string; contributionCount: number; color: string }) => ({
           date: day.date,
           count: day.contributionCount,
           color: day.color,
-          level:Math.min(4,Math.floor(day.contributionCount / 3))
+          level: Math.min(4, Math.floor(day.contributionCount / 3))
       }))
   );
   return {
@@ -132,8 +132,8 @@ export async function getMonthlyActivity() {
       monthlyData[monthKey] = { commits: 0, prs: 0, reviews: 0 };
     }
 
-    calendar?.weeks.forEach((week: any) => {
-      week.contributionDays.forEach((day: any) => {
+    calendar?.weeks.forEach((week: { contributionDays: { date: string; contributionCount: number }[] }) => {
+      week.contributionDays.forEach((day: { date: string; contributionCount: number }) => {
         const date = new Date(day.date);
         const monthKey = `${
           monthsNames[date.getMonth()]

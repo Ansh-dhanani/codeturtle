@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { auth, prisma } from "@/lib/auth";
 import { headers } from "next/headers";
-export async function POST(req: NextRequest) {
+export async function POST() {
   try {
     const session = await auth.api.getSession({ headers: await headers() });
     if (!session) {

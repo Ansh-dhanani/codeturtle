@@ -27,8 +27,8 @@ export function SignupForm() {
     setError('')
     try {
       await authenticateWithGithub()
-    } catch (err: any) {
-      const errorMessage = err?.message || 'Failed to sign up with GitHub';
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to sign up with GitHub';
       setError(errorMessage)
       console.error('GitHub sign-up error:', err)
       setIsLoading(false)

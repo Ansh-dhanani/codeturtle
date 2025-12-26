@@ -7,6 +7,7 @@ export function ThemeToggle() {
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true)
   }, [])
   if (!mounted) {
@@ -18,7 +19,7 @@ export function ThemeToggle() {
   }
   const toggleTheme = () => {
     if ('startViewTransition' in document) {
-      (document as any).startViewTransition(() => {
+      (document as Document & { startViewTransition: (callback: () => void) => void }).startViewTransition(() => {
         setTheme(theme === 'dark' ? 'light' : 'dark')
       })
     } else {
