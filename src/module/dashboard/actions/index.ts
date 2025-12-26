@@ -5,6 +5,25 @@ import { Octokit } from "octokit";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 
+type ContributionDay = {
+  date: string;
+  contributionCount: number;
+  color: string;
+};
+
+type ContributionWeek = {
+  contributionDays: ContributionDay[];
+};
+
+type MonthlyContributionDay = {
+  date: string;
+  contributionCount: number;
+};
+
+type MonthlyContributionWeek = {
+  contributionDays: MonthlyContributionDay[];
+};
+
 // Sample review data for last 6 months
 const SAMPLE_REVIEWS = [10, 8, 7, 6, 5, 8];
 
@@ -26,12 +45,12 @@ export async function getContributionGraph() {
     throw new Error("Failed to fetch contribution data");
   }
 
-  const contributions= calendar.weeks.flatMap((week: any) =>
-      week.contributionDays.map((day: any) => ({
+  const contributions = calendar.weeks.flatMap((week: ContributionWeek) =>
+      week.contributionDays.map((day: ContributionDay) => ({
           date: day.date,
           count: day.contributionCount,
           color: day.color,
-          level:Math.min(4,Math.floor(day.contributionCount / 3))
+          level: Math.min(4, Math.floor(day.contributionCount / 3))
       }))
   );
   return {
@@ -132,8 +151,8 @@ export async function getMonthlyActivity() {
       monthlyData[monthKey] = { commits: 0, prs: 0, reviews: 0 };
     }
 
-    calendar?.weeks.forEach((week: any) => {
-      week.contributionDays.forEach((day: any) => {
+    calendar?.weeks.forEach((week: MonthlyContributionWeek) => {
+      week.contributionDays.forEach((day: MonthlyContributionDay) => {
         const date = new Date(day.date);
         const monthKey = `${
           monthsNames[date.getMonth()]

@@ -52,15 +52,16 @@ export async function fetchUserContribution(token: string, username: string) {
     interface contributionData {
       user: {
         contributionsCollection: {
-            contributionCalendar: any;
-            totalContributions: number;
-            weeks: {
+            contributionCalendar: {
+              weeks: {
                 contributionDays: {
-                    date: string;
-                    contributionCount: number;
-                    color: string;
+                  date: string;
+                  contributionCount: number;
+                  color: string;
                 }[];
-            }[];
+              }[];
+              totalContributions: number;
+            };
         };
       };
     }

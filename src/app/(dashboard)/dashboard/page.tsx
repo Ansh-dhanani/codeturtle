@@ -22,7 +22,7 @@ import {
 import ContributionGraph from '@/components/github/contributionGraph'
 import { MonthlyActivityChart } from '@/components/charts/MonthlyActivityChart'
 
-const page = () => {
+const Page = () => {
   const {
     data: monthlyActivity,
     isLoading: isMonthlyActivityLoading,
@@ -127,4 +127,4 @@ const page = () => {
   )
 }
 
-export default page
+export default Page

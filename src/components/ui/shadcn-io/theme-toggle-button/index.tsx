@@ -3,6 +3,7 @@
 import { Moon, Sun } from 'lucide-react';
 import { useCallback } from 'react';
 import { useTheme } from 'next-themes';
+import { startViewTransition } from '@/lib/view-transition';
 import { cn } from '@/lib/utils';
 
 type AnimationVariant = 
@@ -103,7 +104,7 @@ export const useThemeToggle = (start: StartPosition = 'top-right') => {
     }, 3000);
 
     if ('startViewTransition' in document) {
-      (document as any).startViewTransition(() => {
+      startViewTransition(() => {
         if (theme) {
           setTheme(theme === 'dark' ? 'light' : 'dark');
         }

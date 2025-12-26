@@ -29,7 +29,7 @@ import { SidebarHeaderContent } from "./sidebar-header"
 interface NavItem {
   title: string
   url: string
-  icon: React.ComponentType<any>
+  icon: React.ComponentType
 }
 
 const generalItems = [

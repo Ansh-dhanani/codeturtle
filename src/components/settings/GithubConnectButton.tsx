@@ -7,7 +7,7 @@ export function GithubConnectButton() {
   const handleConnect = async () => {
     try {
       await authenticateWithGithub()
-    } catch (error) {
+    } catch {
       // Error is handled in authenticateWithGithub
     }
   }
