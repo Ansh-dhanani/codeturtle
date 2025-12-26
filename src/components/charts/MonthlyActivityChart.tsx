@@ -73,7 +73,7 @@ export function MonthlyActivityChart({
   const chartData = useMemo(() => data ?? [], [data])
 
   return (
-    <div className="flex flex-col flex-between h-full">
+    <div className="flex flex-col justify-between h-full">
       {/* Chart Area */}
       <div className="flex-1">
         {isLoading ? (

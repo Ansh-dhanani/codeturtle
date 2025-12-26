@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Github } from "lucide-react";
+import { GithubConnectButton } from "@/components/settings/GithubConnectButton";
 
 export const dynamic = 'force-dynamic';
 
@@ -50,9 +51,7 @@ export default async function SettingsPage() {
               <p className="text-sm text-muted-foreground">
                 GitHub account not connected. Connect to view your contribution data.
               </p>
-              <Button asChild>
-                <a href="/api/auth/sign-in/github">Connect GitHub</a>
-              </Button>
+              <GithubConnectButton />
             </div>
           )}
         </CardContent>
