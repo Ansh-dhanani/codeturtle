@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation"
 
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
-import { LogOut } from "lucide-react"
+import { LogOut, Menu } from "lucide-react"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -16,8 +16,9 @@ import {
 } from "@/components/ui/breadcrumb"
 import { useRequireAuth } from "@/hooks/use-auth"
 import { useAuthStore } from "@/stores/auth-store"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { toast } from "sonner"
+import { useSidebar } from "@/components/ui/sidebar"
 
 
 function formatSegment(segment: string) {
@@ -28,6 +29,15 @@ function formatSegment(segment: string) {
 
 export default function Navbar() {
   const pathname = usePathname()
+  const { toggleSidebar } = useSidebar()
+  const [isMobile, setIsMobile] = useState(false)
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768)
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
 
   const segments = pathname
     .split("/")
@@ -50,9 +60,15 @@ export default function Navbar() {
 
   return (
     <header className="flex h-16 items-center gap-2 border-b px-4">
+      {isMobile && (
+        <Button variant="ghost" size="icon" onClick={toggleSidebar}>
+          <Menu className="h-4 w-4" />
+        </Button>
+      )}
 
       <div className="flex-1">
         <Breadcrumb>
+          
           <BreadcrumbList>
             {segments.map((segment, index) => {
               const href = "/" + segments.slice(0, index + 1).join("/")

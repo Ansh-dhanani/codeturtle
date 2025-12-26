@@ -1,12 +1,14 @@
+"use client"
+
 import {
   Settings,
   BadgeQuestionMark,
   LayoutDashboard,
   ChartLine,
   Book,
-} from "lucide-react";
-import { TicketPercentIcon } from "./ui/icons/lucide-ticket-percent";
-import Link from "next/link";
+} from "lucide-react"
+import { TicketPercentIcon } from "./ui/icons/lucide-ticket-percent"
+import Link from "next/link"
 import {
   Sidebar,
   SidebarContent,
@@ -18,9 +20,17 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-} from "@/components/ui/sidebar";
-import { SidebarFooterContent } from "./sidebar-footer";
-import { SidebarHeaderContent } from "./sidebar-header";
+  SidebarRail,
+  useSidebar,
+} from "@/components/ui/sidebar"
+import { SidebarFooterContent } from "./sidebar-footer"
+import { SidebarHeaderContent } from "./sidebar-header"
+
+interface NavItem {
+  title: string
+  url: string
+  icon: React.ComponentType<any>
+}
 
 const generalItems = [
   {
@@ -38,7 +48,7 @@ const generalItems = [
     url: "/settings",
     icon: Settings,
   },
-];
+]
 
 const otherItems = [
   {
@@ -56,7 +66,7 @@ const otherItems = [
     url: "/pricing",
     icon: TicketPercentIcon,
   },
-];
+]
 
 export function AppSidebar() {
   return (
@@ -64,43 +74,56 @@ export function AppSidebar() {
       <SidebarHeader>
         <SidebarHeaderContent />
       </SidebarHeader>
+      
       <SidebarContent>
+        {/* Application Section */}
         <SidebarGroup>
           <SidebarGroupLabel>Application</SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu>
-              {generalItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild>
-                    <Link href={item.url}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
+            <NavItems items={generalItems} />
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* Others Section */}
+        <SidebarGroup>
+          <SidebarGroupLabel>Others</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <NavItems items={otherItems} />
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      
       <SidebarFooter>
-        <SidebarGroupLabel>Others</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {otherItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild>
-                    <Link href={item.url}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
         <SidebarFooterContent />
       </SidebarFooter>
+      
+      <SidebarRail />
     </Sidebar>
-  );
+  )
+}
+
+// Separate component to use useSidebar hook
+function NavItems({ items }: { items: NavItem[] }) {
+  const { isMobile, setOpenMobile } = useSidebar()
+
+  const handleClick = () => {
+    if (isMobile) {
+      setOpenMobile(false)
+    }
+  }
+
+  return (
+    <SidebarMenu>
+      {items.map((item) => (
+        <SidebarMenuItem key={item.title}>
+          <SidebarMenuButton asChild onClick={handleClick}>
+            <Link href={item.url}>
+              <item.icon />
+              <span>{item.title}</span>
+            </Link>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      ))}
+    </SidebarMenu>
+  )
 }
