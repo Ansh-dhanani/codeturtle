@@ -190,6 +190,5 @@ export const deleteWebhook = async (owner:string,repo:string,hookId:number) => {
   } catch (error) {
     console.error("Error deleting webhook:", error);
     throw error;
-    return false;
   }
 }

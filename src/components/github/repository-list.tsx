@@ -5,7 +5,7 @@ import { Badge } from '../ui/badge'
 import { useQuery,useQueryClient,useMutation } from '@tanstack/react-query'
 import { getConnectedRepositories,disconnectAllRepository,disconnectRepository } from '@/module/settings/actions'
 import { toast } from 'sonner'
-import { ExternalLink,Trash2,AlertTriangle, Car } from 'lucide-react'
+import { ExternalLink,Trash2,AlertTriangle } from 'lucide-react'
 import {
     AlertDialog,AlertDialogAction,AlertDialogCancel,AlertDialogContent,AlertDialogDescription,AlertDialogFooter,AlertDialogHeader,AlertDialogTitle,AlertDialogOverlay,AlertDialogPortal,AlertDialogTrigger
 } from '@/components/ui/alert-dialog'
@@ -17,8 +17,8 @@ export function RepositoryList(){
     const {data:Repositories,isLoading} = useQuery({
         queryKey: ['connected-repositories'],
         queryFn: async () => await getConnectedRepositories(),
-        staleTime: Infinity,
-        refetchOnWindowFocus: false,
+        staleTime: 60000, // 1 minute
+        refetchOnWindowFocus: true,
     });
     const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
     const disconnectMutation = useMutation({
@@ -31,9 +31,8 @@ export function RepositoryList(){
                 queryClient.invalidateQueries({ queryKey: ['connected-repositories'] });
                 queryClient.invalidateQueries({ queryKey: ['repository-stats'] });
                 toast.success("Repository disconnected successfully");
-            }
-            else{
-                toast.error(result?.error||"Failed to disconnect repository");
+            } else {
+                toast.error("Failed to disconnect repository");
             }
         },
         onSettled: () => {
@@ -49,9 +48,8 @@ export function RepositoryList(){
                 queryClient.invalidateQueries({ queryKey: ['repository-stats'] });
                 toast.success("Repository disconnected successfully");
                 setDisconnectAllOpen(false);
-            }
-            else{
-                toast.error(result?.error||"Failed to disconnect repository");
+            } else {
+                toast.error("Failed to disconnect repository");
             }
         }
     });
@@ -111,7 +109,7 @@ export function RepositoryList(){
                                 </a>
                                 <Badge className='bg-muted text-muted-foreground'>{new URL(repo.url).hostname}</Badge>
                             </div>
-                                <Button variant="destructive" size="sm" onClick={() => disconnectMutation.mutate(repo.id)} disabled={disconnectingId !== null}>
+                                <Button variant="destructive" size="sm" onClick={() => disconnectMutation.mutate(repo.id)} disabled={disconnectingId !== null && disconnectingId !== repo.id}>
                                     {disconnectingId === repo.id ? 'Disconnecting...' : (<>
                                         <Trash2 size={16} className='mr-2' /> Disconnect
                                     </>)}

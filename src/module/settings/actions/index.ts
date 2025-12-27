@@ -57,7 +57,6 @@ export async function updateUserProfile(data: { name: string }) {
   } catch (error) {
     console.error("Error updating user profile type:", error);
     throw new Error("Failed to update user profile type");
-    return { success: false, error: "Failed to update user profile type" };
   }
 }
 
@@ -85,7 +84,6 @@ export async function getConnectedRepositories() {
   } catch (error) {
     console.error("Error fetching connected repositories:", error);
     throw new Error("Failed to fetch connected repositories");
-    return [];
   }
 }
 
@@ -126,7 +124,6 @@ export async function disconnectRepository(repositoryId: string) {
   } catch (error) {
     console.error("Error disconnecting repository:", error);
     throw new Error("Failed to disconnect repository");
-    return { success: false, error: "Failed to disconnect repository" };
   }
 }
 
@@ -143,10 +140,14 @@ export async function disconnectAllRepository() {
                 userId: session.user.id,
             },
         });
-        await Promise.all(repositories.map(async (repository) => {
-            if (repository.hookId) {
-                await deleteWebhook(repository.owner, repository.name, Number(repository.hookId));
+        await Promise.allSettled(repositories.map(async (repository) => {
+          if (repository.hookId) {
+            try {
+              await deleteWebhook(repository.owner, repository.name, Number(repository.hookId));
+            } catch (err) {
+              console.error(`Failed to delete webhook for ${repository.owner}/${repository.name}:`, err);
             }
+          }
         }));
         await prisma.repository.deleteMany({
             where: {
@@ -159,7 +160,6 @@ export async function disconnectAllRepository() {
         return { success: true };
     } catch (error) {
         console.error("Error disconnecting all repositories:", error);
-        throw new Error("Failed to disconnect all repositories");
-        return { success: false, error: "Failed to disconnect all repositories" };
+      throw new Error("Failed to disconnect all repositories");
     }
 }
