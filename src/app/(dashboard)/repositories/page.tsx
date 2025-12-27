@@ -18,6 +18,7 @@ import {
   PlugZap,
 } from 'lucide-react'
 import { useRepositories } from '@/module/repository/hooks/use-repositories'
+import { connectRepository } from '@/module/repository/actions'
 import { useConnectRepository } from '@/module/repository/hooks/use-connect-repositorys'
 
 interface Repository {
@@ -44,6 +45,8 @@ const Page = () => {
   const [localConnectingId, setLocalConnectingId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('')
   const loadMoreRef = useRef<HTMLDivElement | null>(null)
+
+  const connectRepoMutation = useConnectRepository()
   const {mutate:connectRepo} = useConnectRepository();
   const getLanguageColor = (language: string | null) => {
     if (!language) return 'bg-gray-400'
@@ -222,6 +225,13 @@ const Page = () => {
                   size="sm"
                   variant={repo.isConnected ? 'secondary' : 'default'}
                   className="h-8"
+                  onClick={() => {
+                    if (!repo.isConnected) {
+                      const [owner, repoName] = repo.fullName.split('/')
+                      connectRepoMutation.mutate({ owner, repo: repoName, githubId: repo.id })
+                    }
+                  }}
+                  disabled={connectRepoMutation.isPending}
                 >
                   {repo.isConnected ? (
                     <>
