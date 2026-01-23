@@ -1,6 +1,4 @@
-'use client'
-
-import React from 'react'
+import React, { Suspense } from 'react'
 import {
   Card,
   CardContent,
@@ -14,33 +12,127 @@ import {
   MessageSquare,
   GitBranch,
 } from 'lucide-react'
-import { useQuery } from '@tanstack/react-query'
-import {
-  getDashboardStats,
-  getMonthlyActivity,
-} from '@/module/dashboard/actions'
-import ContributionGraph from '@/components/github/contributionGraph'
+import { getDashboardStats, getMonthlyActivity, getContributionGraph } from '@/module/dashboard/actions'
 import { MonthlyActivityChart } from '@/components/charts/MonthlyActivityChart'
+import { Skeleton } from '@/components/ui/skeleton'
 
-const Page = () => {
-  const {
-    data: monthlyActivity,
-    isLoading: isMonthlyActivityLoading,
-  } = useQuery({
-    queryKey: ['monthly-activity'],
-    queryFn: async () => await getMonthlyActivity(),
-    refetchOnWindowFocus: false,
-  })
+async function DashboardStats() {
+  const stats = await getDashboardStats()
 
-  const {
-    data: stats,
-    isLoading: isStatsLoading,
-  } = useQuery({
-    queryKey: ['dashboard-stats'],
-    queryFn: async () => await getDashboardStats(),
-    refetchOnWindowFocus: false,
-  })
+  return (
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium">Total Repositories</CardTitle>
+          <GitBranch className="h-4 w-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">{stats.totalRepos}</div>
+          <p className="text-xs text-muted-foreground">
+            Connected repositories
+          </p>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium">Total Commits</CardTitle>
+          <GitCommit className="h-4 w-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">{stats.totalCommits}</div>
+          <p className="text-xs text-muted-foreground">
+            This year
+          </p>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium">Pull Requests</CardTitle>
+          <GitPullRequest className="h-4 w-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">{stats.totalPRs}</div>
+          <p className="text-xs text-muted-foreground">
+            Created this year
+          </p>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium">AI Reviews</CardTitle>
+          <MessageSquare className="h-4 w-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">{stats.totalAIReviews}</div>
+          <p className="text-xs text-muted-foreground">
+            Code reviews completed
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
 
+async function MonthlyActivity() {
+  const monthlyActivity = await getMonthlyActivity()
+
+  // getMonthlyActivity now returns default data instead of null during prerendering
+  return <MonthlyActivityChart data={monthlyActivity} isLoading={false} />
+}
+
+async function ContributionGraphServer() {
+  const contributionData = await getContributionGraph()
+
+  return (
+    <div className="w-full">
+      <div className="text-sm text-muted-foreground mb-2">
+        {contributionData.totalContributions} contributions in the last year
+      </div>
+      <div className="text-xs text-muted-foreground">
+        Less <span className="inline-block w-2 h-2 bg-muted rounded-sm mx-1"></span>
+        <span className="inline-block w-2 h-2 bg-blue-200 rounded-sm mx-1"></span>
+        <span className="inline-block w-2 h-2 bg-blue-300 rounded-sm mx-1"></span>
+        <span className="inline-block w-2 h-2 bg-blue-400 rounded-sm mx-1"></span>
+        <span className="inline-block w-2 h-2 bg-blue-500 rounded-sm mx-1"></span> More
+      </div>
+    </div>
+  )
+}
+
+function DashboardStatsSkeleton() {
+  return (
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <Card key={i}>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-4 w-4" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-8 w-16 mb-2" />
+            <Skeleton className="h-3 w-20" />
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  )
+}
+
+function MonthlyActivitySkeleton() {
+  return (
+    <Card>
+      <CardHeader>
+        <Skeleton className="h-6 w-48" />
+        <Skeleton className="h-4 w-64" />
+      </CardHeader>
+      <CardContent>
+        <Skeleton className="h-64 w-full" />
+      </CardContent>
+    </Card>
+  )
+}
+
+export default function Page() {
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -51,80 +143,31 @@ const Page = () => {
         </p>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
-        {[
-          {
-            title: 'Total Repositories',
-            value: stats?.totalRepos,
-            icon: GitBranch,
-          },
-          {
-            title: 'Total Commits',
-            value: stats?.totalCommits,
-            icon: GitCommit,
-          },
-          {
-            title: 'Total PRs',
-            value: stats?.totalPRs,
-            icon: GitPullRequest,
-          },
-          {
-            title: 'AI Reviews',
-            value: stats?.totalAIReviews,
-            icon: MessageSquare,
-          },
-        ].map((item, i) => (
-          <Card
-            key={i}
-            className="group relative transition-all duration-300 hover:-translate-y-1 hover:shadow-lg"
-          >
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                {item.title}
-              </CardTitle>
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted transition-colors group-hover:bg-primary/10">
-                <item.icon className="h-4 w-4 text-primary" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold tracking-tight">
-                {isStatsLoading ? '—' : item.value}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+      {/* Stats */}
+      <Suspense fallback={<DashboardStatsSkeleton />}>
+        <DashboardStats />
+      </Suspense>
+
+      {/* Charts */}
+      <div className="grid gap-6 md:grid-cols-2">
+        <Suspense fallback={<MonthlyActivitySkeleton />}>
+          <MonthlyActivity />
+        </Suspense>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Contribution Graph</CardTitle>
+            <CardDescription>
+              Your GitHub contribution activity
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Suspense fallback={<Skeleton className="h-32 w-full" />}>
+              <ContributionGraphServer />
+            </Suspense>
+          </CardContent>
+        </Card>
       </div>
-
-      {/* Contribution Chart */}
-      <Card className="w-full">
-        <CardHeader>
-          <CardTitle>Contribution Activity</CardTitle>
-        </CardHeader>
-        <CardContent className="min-h-[300px]">
-          <ContributionGraph />
-        </CardContent>
-      </Card>
-
-      {/* Monthly Activity Chart */}
-      <Card className="w-full">
-        <CardHeader className="space-y-1">
-          <CardTitle>Monthly Activity (Last 6 Months)</CardTitle>
-          <CardDescription>
-            Overview of PRs, and reviews
-          </CardDescription>
-        </CardHeader>
-
-        {/* Height contract lives HERE */}
-        <CardContent className="min-h-[280px] sm:min-h-[320px] lg:min-h-[360px]">
-          <MonthlyActivityChart
-            data={monthlyActivity ?? []}
-            isLoading={isMonthlyActivityLoading}
-          />
-        </CardContent>
-      </Card>
     </div>
   )
 }
-
-export default Page

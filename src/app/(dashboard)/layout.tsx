@@ -3,13 +3,8 @@ import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { Spinner } from "@/components/ui/spinner";
 import { Suspense } from "react";
 import Navbar from "@/components/navbar";
-import { requireAuth } from "@/lib/auth-utils";
 
-export const dynamic = 'force-dynamic';
-
-export default async function Layout({ children }: { children: React.ReactNode }) {
-  await requireAuth();
-
+export default function Layout({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
       <AppSidebar />

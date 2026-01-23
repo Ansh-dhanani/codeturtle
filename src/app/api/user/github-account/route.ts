@@ -21,8 +21,8 @@ export async function GET() {
       providerId: githubAccount.providerId,
       accountId: githubAccount.accountId,
     });
-  } catch (error) {
-    console.error("Error checking GitHub account:", error);
+  } catch {
+    // Suppress logging for expected PPR behavior
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

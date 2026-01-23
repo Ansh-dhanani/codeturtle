@@ -10,4 +10,3 @@ export async function GET() {
   }
   return Response.json({ user: session.user })
 }
-export const dynamic = 'force-dynamic'

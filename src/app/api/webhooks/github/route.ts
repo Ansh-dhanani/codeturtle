@@ -14,7 +14,7 @@ function timingSafeCompare(a: string, b: string) {
     const bufB = Buffer.from(b);
     if (bufA.length !== bufB.length) return false;
     return crypto.timingSafeEqual(bufA, bufB);
-  } catch (_err) {
+  } catch {
     return false;
   }
 }
@@ -43,7 +43,7 @@ export async function POST(req: Request) {
   }
 
   // Try to find the repository record to obtain the stored hook secret
-  let repoRecord: { hookSecret: string } | null = null;
+  let repoRecord: { hookSecret: string | null } | null = null;
   try {
     if (parsedBody?.hook_id && typeof parsedBody.hook_id === 'number') {
       repoRecord = await prisma.repository.findFirst({ 
@@ -51,8 +51,8 @@ export async function POST(req: Request) {
         select: { hookSecret: true }
       });
     }
-    if (!repoRecord && parsedBody?.repository?.full_name) {
-      repoRecord = await prisma.repository.findFirst({ where: { fullName: parsedBody.repository.full_name } });
+    if (!repoRecord && parsedBody?.repository && typeof parsedBody.repository === 'object' && 'full_name' in parsedBody.repository) {
+      repoRecord = await prisma.repository.findFirst({ where: { fullName: (parsedBody.repository as { full_name: string }).full_name } });
     }
   } catch (err) {
     console.error('Error looking up repository for webhook:', err);
@@ -85,7 +85,7 @@ export async function POST(req: Request) {
   if (event === 'pull_request') {
     try {
       const action = parsedBody?.action;
-      const repo = parsedBody?.repository?.full_name;
+      const repo = parsedBody?.repository && typeof parsedBody.repository === 'object' && 'full_name' in parsedBody.repository ? (parsedBody.repository as { full_name: string }).full_name : undefined;
       console.log(`Received pull_request event: action=${action} repo=${repo} delivery=${delivery}`);
       // TODO: implement PR processing (e.g., enqueue job, run checks, etc.)
     } catch (err) {

@@ -20,17 +20,23 @@ import {
 import { useRepositories } from '@/module/repository/hooks/use-repositories'
 import { useConnectRepository } from '@/module/repository/hooks/use-connect-repositorys'
 
-interface Repository {
-  id: number
-  name: string
-  fullName: string
-  description: string | null
-  html_url: string
-  stargazers_count: number
-  language: string | null
-  topics: string[]
-  isConnected: boolean
-}
+
+export type GithubRepository = {
+  id: number;
+  name: string;
+  full_name: string;
+  description: string | null;
+  html_url: string;
+  stargazers_count: number;
+  language: string | null;
+  topics?: string[];
+  [key: string]: unknown;
+};
+
+export type Repository = GithubRepository & {
+  fullName: string;
+  isConnected: boolean;
+};
 
 const Page = () => {
   const {
@@ -98,8 +104,8 @@ const Page = () => {
   const repositories =
     data?.pages
       .flat()
-      .filter((repo: Repository) =>
-        repo.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      .filter((repo) =>
+        repo.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         repo.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         repo.language?.toLowerCase().includes(searchQuery.toLowerCase())
       ) ?? []

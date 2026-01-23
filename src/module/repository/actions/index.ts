@@ -4,7 +4,24 @@ import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { createWebhook, getRepositories } from "@/module/github/github";
 
-export const fetchUserRepositories = async (page: number = 1, perPage: number = 10) => {
+type GithubRepository = {
+  id: number;
+  name: string;
+  full_name: string;
+  description: string | null;
+  html_url: string;
+  stargazers_count: number;
+  language: string | null;
+  topics?: string[];
+  [key: string]: unknown;
+};
+
+type Repository = GithubRepository & {
+  fullName: string;
+  isConnected: boolean;
+};
+
+export const fetchUserRepositories = async (page: number = 1, perPage: number = 10): Promise<Repository[]> => {
     try {
         const session = await auth.api.getSession
         ({
@@ -14,7 +31,7 @@ export const fetchUserRepositories = async (page: number = 1, perPage: number = 
         if (!user) {
             throw new Error("User not authenticated");
         }
-        const repositories = await getRepositories(page, perPage);
+        const repositories: GithubRepository[] = await getRepositories(page, perPage);
         
         const dbRepos = await prisma.repository.findMany({
             where: {
@@ -24,7 +41,7 @@ export const fetchUserRepositories = async (page: number = 1, perPage: number = 
         const connectedRepoIds = new Set(dbRepos.map((repo) => repo.githubId));
 
         return repositories
-            .map((repo: { id: number; full_name: string; [key: string]: unknown }) => ({
+            .map((repo: GithubRepository) => ({
                 ...repo,
                 fullName: repo.full_name,
                 isConnected: connectedRepoIds.has(BigInt(repo.id)),
