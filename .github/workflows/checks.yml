@@ -1,0 +1,68 @@
+name: Checks
+
+# Runs lint, type-check, tests and build for pull requests and main branch pushes.
+# This workflow is focused on verification (no deploys).
+
+on:
+  pull_request:
+    branches: [ '**' ]
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Checks (lint, typecheck, test, build)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: 'latest'
+
+      - name: Cache Bun
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun
+            .bun
+          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lockb') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Lint
+        run: bun run lint --if-present
+
+      - name: Type check
+        run: bun run typecheck --if-present
+
+      - name: Run tests
+        run: bun run test --if-present
+
+      - id: build-step
+        name: Build
+        run: bun run build --if-present
+
+      - name: Notify success
+        if: success()
+        run: echo "Checks passed for ${{ github.sha }}"
