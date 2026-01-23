@@ -24,7 +24,7 @@ export const fetchUserRepositories = async (page: number = 1, perPage: number = 
         const connectedRepoIds = new Set(dbRepos.map((repo) => repo.githubId));
 
         return repositories
-            .map((repo:any) => ({
+            .map((repo: { id: number; full_name: string; [key: string]: unknown }) => ({
                 ...repo,
                 fullName: repo.full_name,
                 isConnected: connectedRepoIds.has(BigInt(repo.id)),
@@ -58,7 +58,7 @@ export const connectRepository = async (owner: string,repo: string,githubId: num
                 url: `https://github.com/${owner}/${repo}`,
                 userId: session.user.id,
                 hookId: webhook.id ? BigInt(webhook.id) : undefined,
-                hookSecret: (webhook as any).secret || undefined,
+                hookSecret: (webhook as { secret?: string }).secret || undefined,
             },
         });
 

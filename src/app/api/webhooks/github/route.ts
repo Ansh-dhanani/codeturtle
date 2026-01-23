@@ -14,7 +14,7 @@ function timingSafeCompare(a: string, b: string) {
     const bufB = Buffer.from(b);
     if (bufA.length !== bufB.length) return false;
     return crypto.timingSafeEqual(bufA, bufB);
-  } catch (err) {
+  } catch (_err) {
     return false;
   }
 }
@@ -34,7 +34,7 @@ export async function POST(req: Request) {
   const buf = await req.arrayBuffer();
   const payload = Buffer.from(buf);
 
-  let parsedBody: any;
+  let parsedBody: Record<string, unknown> | null;
   try {
     parsedBody = JSON.parse(payload.toString());
   } catch (err) {
@@ -43,10 +43,13 @@ export async function POST(req: Request) {
   }
 
   // Try to find the repository record to obtain the stored hook secret
-  let repoRecord: any | null = null;
+  let repoRecord: { hookSecret: string } | null = null;
   try {
-    if (parsedBody?.hook_id) {
-      repoRecord = await prisma.repository.findFirst({ where: { hookId: BigInt(parsedBody.hook_id) } });
+    if (parsedBody?.hook_id && typeof parsedBody.hook_id === 'number') {
+      repoRecord = await prisma.repository.findFirst({ 
+        where: { hookId: BigInt(parsedBody.hook_id) },
+        select: { hookSecret: true }
+      });
     }
     if (!repoRecord && parsedBody?.repository?.full_name) {
       repoRecord = await prisma.repository.findFirst({ where: { fullName: parsedBody.repository.full_name } });

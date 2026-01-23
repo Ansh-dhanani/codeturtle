@@ -25,16 +25,6 @@ interface NavbarProps {
 }
 
 /**
- * Format a path or URL segment into a human-friendly label.
- *
- * @param segment - The segment string (for example, "user-profile" or "order_history")
- * @returns The input with dashes replaced by spaces and each word capitalized (for example, "User Profile")
- */
-function formatSegment(segment: string) {
-  return segment.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
-}
-
-/**
  * Render the top navigation bar with optional mobile menu, breadcrumbs, and sign-out control.
  *
  * @param showMenu - When true, display a menu button on viewports narrower than `breakpoint`.
@@ -78,7 +68,6 @@ export default function Navbar({
       }
     } catch (error) {
       // Log & notify so it's visible in dev and to users
-      // eslint-disable-next-line no-console
       console.error("Failed to sign out:", error)
       toast.error("Failed to sign out. Please try again.")
     } finally {
