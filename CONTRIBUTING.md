@@ -47,7 +47,7 @@ Use short, present-tense messages. Prefer conventional commits (e.g., `feat:`, `
 Follow `.env.example` instructions in `README.md`. Do not commit credentials or tokens.
 
 ## Reporting Security Issues
-If you find a security vulnerability, please report it privately by opening an issue labeled `security` or contacting the maintainer directly.
+If you find a security vulnerability, please report it privately via GitHub Security Advisories or by contacting the maintainer directly. Please do not open a public issue.
 
 ---
 Thanks again — we look forward to your contribution!
