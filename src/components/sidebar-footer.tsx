@@ -16,10 +16,8 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { ChevronsUpDown, LogOut, Settings } from "lucide-react"
 import Image from "next/image"
 import { useAuthStore } from "@/stores/auth-store"
-import { useState } from "react"
-import { toast } from "sonner"
 import { Spinner } from "@/components/ui/spinner"
-import { useRequireAuth } from "@/hooks/use-auth"
+import { useSignOut } from "@/hooks/use-signout"
 import Link from "next/link"
 import { ThemeToggleButton, useThemeToggle } from "./ui/shadcn-io/theme-toggle-button"
 
@@ -29,23 +27,10 @@ export function SidebarFooterContent() {
   const { isMobile } = useSidebar()
   
   const { toggle, theme: currentTheme } = useThemeToggle('top-right')
-  const { signOut } = useRequireAuth()
-  const [isSigningOut, setIsSigningOut] = useState(false)
+  const { isSigningOut, handleSignOut } = useSignOut()
 
   const handleThemeToggle = () => {
     toggle()
-  }
-
-  const handleSignOut = async () => {
-    setIsSigningOut(true)
-    try {
-      await signOut()
-      toast.success('Successfully logged out')
-    } catch (error) {
-      console.error('Failed to sign out:', error)
-      toast.error('Failed to log out. Please try again.')
-      setIsSigningOut(false)
-    }
   }
 
   // Loading state

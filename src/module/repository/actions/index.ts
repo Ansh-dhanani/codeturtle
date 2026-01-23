@@ -43,7 +43,6 @@ export const connectRepository = async (owner: string,repo: string,githubId: num
         if (!session) {
             throw new Error("User not authenticated");
         }
-        //TODO check if user can connect more repositories
         const webhook = await createWebhook(owner,repo);
 
         if (!webhook) {
