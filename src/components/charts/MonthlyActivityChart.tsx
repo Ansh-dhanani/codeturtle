@@ -66,7 +66,7 @@ const CustomLegend = () => (
     </div>
   </TooltipProvider>
 )
-
+//this is montly
 export function MonthlyActivityChart({
   data,
   isLoading,
