@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "prisma generate && next build",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "eslint . --max-warnings 0",
     "postinstall": "prisma generate",
     "db:seed": "tsx prisma/seed.ts",
     "db:clear": "tsx prisma/clear-db.ts",
