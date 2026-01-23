@@ -12,6 +12,17 @@ interface SignOutButtonProps extends React.ComponentProps<typeof Button> {
   isSigningOut?: boolean
 }
 
+/**
+ * Render a ghost-styled sign-out button that displays a spinner and disabled state while signing out.
+ *
+ * When signing out, the button is disabled, shows a spinner with the label "Signing out...", and exposes
+ * `aria-busy`/`aria-live` for assistive technologies.
+ *
+ * @param onSignOut - Optional override handler invoked when the button is activated. If omitted, the component manages sign-out itself.
+ * @param label - Text label shown on the button when not signing out. Defaults to "Sign out".
+ * @param isSigningOut - Optional external boolean to control the signing-out state; when provided it takes precedence over internal state.
+ * @returns The sign-out Button element.
+ */
 export function SignOutButton({ onSignOut, label = "Sign out", isSigningOut: externalSigningOut, ...props }: SignOutButtonProps) {
   const { isSigningOut: internalSigningOut, handleSignOut } = useSignOut()
 
