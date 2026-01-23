@@ -1,70 +1,66 @@
 'use client'
 import React from 'react'
 import {
-    Card, CardContent, CardHeader, CardTitle, CardDescription
+  Card, CardContent, CardHeader, CardTitle, CardDescription
 } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
-import { Label } from '@/components/ui/label'
-import {useQuery, useMutation,useQueryClient} from '@tanstack/react-query'
-import {getUserProfile,updateUserProfile} from '@/module/settings/actions'
-import { toast } from 'sonner'
-import { useState } from 'react'
+import { FormField } from '@/components/ui/form-field'
+import { SubmitButton } from '@/components/ui/submit-button'
+import { useProfile } from '@/hooks/useProfile'
+import { AlertCircle } from 'lucide-react'
 
-const ProfileForm = () => {
-    const QueryClient=useQueryClient();
-    const {data,isLoading}=useQuery({
-        queryKey:['userProfile'],
-        queryFn:getUserProfile,
-        staleTime:1000 * 60 * 5,
-        refetchOnWindowFocus:false,
-    });
+const ProfileForm: React.FC = () => {
+  const { isLoading, error, form, isFormChanged } = useProfile()
 
-    const[name,setName]=useState(data?.name || '');
+  if (error) {
+    return (
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex items-center justify-center space-x-2 text-destructive">
+            <AlertCircle className="h-5 w-5" />
+            <span>Failed to load profile data. Please try refreshing the page.</span>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
 
-    const updateMutation=useMutation({
-        mutationFn:async (data:{name:string})=> await updateUserProfile(data),
-        onSuccess: (result) => {
-            if(result?.success){
-                QueryClient.invalidateQueries({queryKey:['userProfile']});
-                toast.success('Profile updated successfully');
-            }
-        },
-        onError: () => {
-            toast.error('Failed to update profile');
-        }
-    });
-
-    const handleSubmit=(e:React.FormEvent)=>{
-        e.preventDefault();
-        updateMutation.mutate({name});
-    }
   return (
-    <div>
-        <Card>
-            <CardHeader>
-                <CardTitle>Profile Settings</CardTitle>
-                <CardDescription>Update your profile information</CardDescription>
-            </CardHeader>
-            <CardContent>
-                <form onSubmit={handleSubmit} className='space-y-4'>
-                    <div className='space-y-2'> 
-                        <Label htmlFor='name'>Name</Label>
-                        <Input
-                            id='name'
-                            type='text'
-                            value={name}
-                            onChange={(e)=>setName(e.target.value)}
-                            disabled={isLoading || updateMutation.isPending}
-                        />
-                    </div>
-                    <Button type='submit' disabled={isLoading || updateMutation.isPending}>
-                        {updateMutation.isPending ? 'Updating...' : 'Update Profile'}
-                    </Button>
-                </form>
-            </CardContent>
-        </Card>
-    </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Profile Settings</CardTitle>
+        <CardDescription>
+          Update your profile information to personalize your experience.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={form.handleSubmit} className="space-y-6">
+          <FormField
+            label="Full Name"
+            name="name"
+            type="text"
+            value={form.data.name}
+            onChange={(value) => form.setValue('name', value)}
+            error={form.errors.name}
+            placeholder={isLoading ? 'Loading...' : 'Enter your full name'}
+            disabled={isLoading || form.isSubmitting}
+            required
+            minLength={1}
+            maxLength={100}
+          />
+
+          <div className="flex justify-end">
+            <SubmitButton
+              isSubmitting={form.isSubmitting}
+              disabled={!isFormChanged}
+              loadingText="Updating profile..."
+              className="min-w-[140px]"
+            >
+              Update Profile
+            </SubmitButton>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
   )
 }
 

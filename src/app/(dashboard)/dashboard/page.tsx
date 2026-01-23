@@ -77,7 +77,19 @@ async function MonthlyActivity() {
   const monthlyActivity = await getMonthlyActivity()
 
   // getMonthlyActivity now returns default data instead of null during prerendering
-  return <MonthlyActivityChart data={monthlyActivity} isLoading={false} />
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Monthly Activity</CardTitle>
+        <CardDescription>
+          Your coding activity over the last 12 months
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <MonthlyActivityChart data={monthlyActivity} isLoading={false} />
+      </CardContent>
+    </Card>
+  )
 }
 
 async function ContributionGraphServer() {

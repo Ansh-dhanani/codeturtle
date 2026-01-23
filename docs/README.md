@@ -70,7 +70,3 @@ src/
 ## Troubleshooting
 - Redirects/308: ensure webhook URL is exactly `NEXT_PUBLIC_APP_URL` + `/api/webhooks/github` (no double slashes)
 - Signature failures: ensure you compute HMAC over the raw payload and compare with `X-Hub-Signature-256`
-
----
-
-If you'd like, I can add a small sidebar or split docs later, but this keeps everything in one place for now.
