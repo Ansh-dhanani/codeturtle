@@ -1,6 +1,13 @@
 import prisma from '@/lib/prisma';
 import crypto from 'crypto';
 
+/**
+ * Perform a timing-safe (constant-time) comparison of two strings.
+ *
+ * @param a - The first string to compare
+ * @param b - The second string to compare
+ * @returns `true` if the strings are equal, `false` otherwise. Returns `false` if the lengths differ or an error occurs during comparison.
+ */
 function timingSafeCompare(a: string, b: string) {
   try {
     const bufA = Buffer.from(a);
@@ -12,6 +19,12 @@ function timingSafeCompare(a: string, b: string) {
   }
 }
 
+/**
+ * Handle incoming GitHub webhook POST requests: verify HMAC signatures (using a repository-stored secret or GITHUB_WEBHOOK_SECRET), respond to pings, and perform basic dispatch for supported events (e.g., `pull_request`).
+ *
+ * @param req - The incoming HTTP request containing GitHub webhook headers and JSON payload
+ * @returns An HTTP Response: `200` with JSON `{ handled: true }` for processed events, `200` with JSON `{ ok: true, message: 'pong' }` for ping events, or `401` with body `'Invalid signature'` when signature verification fails
+ */
 export async function POST(req: Request) {
   const event = (req.headers.get('x-github-event') || '').toLowerCase();
   const delivery = req.headers.get('x-github-delivery') || '';
