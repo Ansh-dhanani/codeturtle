@@ -24,12 +24,25 @@ interface NavbarProps {
   onSignOut?: () => Promise<void> | void
 }
 
+/**
+ * Format a path or URL segment into a human-friendly label.
+ *
+ * @param segment - The segment string (for example, "user-profile" or "order_history")
+ * @returns The input with dashes replaced by spaces and each word capitalized (for example, "User Profile")
+ */
 function formatSegment(segment: string) {
   return segment.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
 /**
- * Navbar - lightweight, typed, and reusable
+ * Render the top navigation bar with optional mobile menu, breadcrumbs, and sign-out control.
+ *
+ * @param showMenu - When true, display a menu button on viewports narrower than `breakpoint`.
+ * @param showBreadcrumbs - When true, display breadcrumb navigation derived from the current pathname.
+ * @param breakpoint - Width in pixels below which the component considers the viewport "mobile".
+ * @param className - Additional CSS classes applied to the header container.
+ * @param onSignOut - Optional override called when the user signs out; if omitted the default sign-out flow is used. Concurrent sign-out attempts are ignored.
+ * @returns The navbar JSX element.
  */
 export default function Navbar({
   showMenu = true,
@@ -97,4 +110,3 @@ export default function Navbar({
     </header>
   )
 }
-

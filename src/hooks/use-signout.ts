@@ -3,8 +3,11 @@ import { toast } from "sonner"
 import { useRequireAuth } from "@/hooks/use-auth"
 
 /**
- * Encapsulates sign-out logic and user-facing notifications.
- * Returns a stable handler suitable for buttons, menu items, etc.
+ * Provides sign-out logic with user-facing success and error notifications and a stable handler for UI consumption.
+ *
+ * @returns An object containing:
+ * - `isSigningOut` — `true` if a sign-out operation is in progress, `false` otherwise.
+ * - `handleSignOut` — Function that initiates a sign-out operation and completes when the attempt finishes.
  */
 export function useSignOut() {
   const { signOut } = useRequireAuth()
