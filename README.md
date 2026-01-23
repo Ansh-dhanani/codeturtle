@@ -108,94 +108,42 @@ Start the development server:
 bun dev
 ```
 
----
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-## GitHub Integration
+## Database Scripts
 
-### OAuth
+- `bun run db:clear` - Clear all data from database
+- `bun run db:seed` - Clear all data (users are created automatically via GitHub OAuth on first login)
+- `bun run db:reset` - Clear database (runs db:clear and db:seed)
 
-OAuth scopes are configured in `src/lib/auth.ts`.
+## Tech Stack
 
-Recommended scopes:
+- **Framework:** Next.js 15 with App Router
+- **Language:** TypeScript
+- **Authentication:** Better Auth with GitHub OAuth
+- **Database:** PostgreSQL with Prisma ORM
+- **Styling:** Tailwind CSS
+- **UI Components:** Shadcn UI
+- **State Management:** React Query + Zustand
+- **Runtime:** Bun
 
-* `repo`
-* `admin:repo_hook`
+## Learn More
 
-### Webhooks
+To learn more about Next.js, take a look at the following resources:
 
-* Endpoint: `POST /api/webhooks/github`
-* Supported events: `ping`, `pull_request`
-* Webhook secrets are stored per repository
-* Signature verification is enforced for all requests
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
 
----
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
-## Project Structure
+## Deploy on Vercel
 
-```text
-src/
-├── app/                # Next.js App Router
-├── api/                # API routes (auth, webhooks)
-├── lib/                # Auth, database, utilities
-├── components/         # Shared UI components
-├── prisma/             # Prisma schema and migrations
-└── styles/             # Global styles
-```
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
----
-
-## Development Workflow
-
-* Default branch: `main`
-* Feature branches: `feature/<name>`
-* Pull requests required for all changes
-* Conventional commits recommended
-
-Each pull request should include:
-
-* Summary of changes
-* Testing steps
-* Related issue (if applicable)
-
----
-
-## Contributing
-
-Contributions are welcome.
-
-1. Fork the repository
-2. Create a feature or fix branch
-3. Run linting and tests locally
-4. Open a pull request with a clear description
-
-Please read `CONTRIBUTING.md` before submitting changes.
-
----
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
 ## Contributors
 
 <a href="https://github.com/Ansh-dhanani/codeturtle/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=Ansh-dhanani/codeturtle" />
+  <img src="https://contrib.rocks/image?repo=Ansh-dhanani/codeturtle" alt="CodeTurtle contributors" />
 </a>
-
----
-
-## Maintainer
-
-**Ansh Dhanani**
-Creator and lead maintainer
-
----
-
-## Security
-
-If you discover a security vulnerability, please report it privately to the maintainers.
-
-Do not disclose vulnerabilities publicly until they are resolved.
-
----
-
-## License
-
-This project is licensed under the MIT License.
-See the `LICENSE` file for details.
