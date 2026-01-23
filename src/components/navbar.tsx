@@ -1,128 +1,112 @@
 "use client"
 
-import * as React from "react"
+import React, { useCallback, useEffect, useState } from "react"
 import { usePathname } from "next/navigation"
 
 import { Button } from "@/components/ui/button"
-import { Spinner } from "@/components/ui/spinner"
-import { LogOut, Menu } from "lucide-react"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
+import { Menu } from "lucide-react"
 import { useRequireAuth } from "@/hooks/use-auth"
 import { useAuthStore } from "@/stores/auth-store"
-import { useState, useEffect } from "react"
 import { toast } from "sonner"
 import { useSidebar } from "@/components/ui/sidebar"
+import { Breadcrumbs } from "@/components/ui/shared/Breadcrumbs"
+import { SignOutButton } from "@/components/ui/shared/SignOutButton"
 
-
-function formatSegment(segment: string) {
-  return segment
-    .replace(/-/g, " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase())
+interface NavbarProps {
+  /** Show the mobile menu toggle (hamburger) */
+  showMenu?: boolean
+  /** Whether breadcrumbs should be shown */
+  showBreadcrumbs?: boolean
+  /** Breakpoint in px for mobile behavior */
+  breakpoint?: number
+  className?: string
+  /** Optional override for sign-out handler */
+  onSignOut?: () => Promise<void> | void
 }
 
-export default function Navbar() {
+/**
+ * Format a path or URL segment into a human-friendly label.
+ *
+ * @param segment - The segment string (for example, "user-profile" or "order_history")
+ * @returns The input with dashes replaced by spaces and each word capitalized (for example, "User Profile")
+ */
+function formatSegment(segment: string) {
+  return segment.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+/**
+ * Render the top navigation bar with optional mobile menu, breadcrumbs, and sign-out control.
+ *
+ * @param showMenu - When true, display a menu button on viewports narrower than `breakpoint`.
+ * @param showBreadcrumbs - When true, display breadcrumb navigation derived from the current pathname.
+ * @param breakpoint - Width in pixels below which the component considers the viewport "mobile".
+ * @param className - Additional CSS classes applied to the header container.
+ * @param onSignOut - Optional override called when the user signs out; if omitted the default sign-out flow is used. Concurrent sign-out attempts are ignored.
+ * @returns The navbar JSX element.
+ */
+export default function Navbar({
+  showMenu = true,
+  showBreadcrumbs = true,
+  breakpoint = 768,
+  className = "",
+  onSignOut,
+}: NavbarProps) {
   const pathname = usePathname()
   const { toggleSidebar } = useSidebar()
+
   const [isMobile, setIsMobile] = useState(false)
-
   useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth < 768)
+    const checkMobile = () => setIsMobile(window.innerWidth < breakpoint)
     checkMobile()
-    window.addEventListener('resize', checkMobile)
-    return () => window.removeEventListener('resize', checkMobile)
-  }, [])
-
-  const segments = pathname
-    .split("/")
-    .filter(Boolean) 
+    window.addEventListener("resize", checkMobile)
+    return () => window.removeEventListener("resize", checkMobile)
+  }, [breakpoint])
 
   const { signOut } = useRequireAuth()
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+
   const [isSigningOut, setIsSigningOut] = useState(false)
 
-  const handleSignOut = async () => {
+  const handleSignOut = useCallback(async () => {
+    if (isSigningOut) return
     setIsSigningOut(true)
     try {
-      await signOut()
+      if (onSignOut) {
+        await onSignOut()
+      } else {
+        await signOut()
+      }
     } catch (error) {
-      console.error('Failed to sign out:', error)
-      toast.error('Failed to log out. Please try again.')
+      // Log & notify so it's visible in dev and to users
+      // eslint-disable-next-line no-console
+      console.error("Failed to sign out:", error)
+      toast.error("Failed to sign out. Please try again.")
+    } finally {
       setIsSigningOut(false)
     }
-  }
+  }, [isSigningOut, onSignOut, signOut])
 
   return (
-    <header className="flex h-16 items-center gap-2 border-b px-4">
-      {isMobile && (
-        <Button variant="ghost" size="icon" onClick={toggleSidebar}>
+    <header className={`flex h-16 items-center gap-2 border-b px-4 ${className}`}>
+      {showMenu && isMobile && (
+        <Button variant="ghost" size="icon" onClick={toggleSidebar} aria-label="Open menu">
           <Menu className="h-4 w-4" />
         </Button>
       )}
 
       <div className="flex-1">
-        <Breadcrumb>
-          
-          <BreadcrumbList>
-            {segments.map((segment, index) => {
-              const href = "/" + segments.slice(0, index + 1).join("/")
-              const isLast = index === segments.length - 1
-
-              return (
-                <React.Fragment key={href}>
-                  <BreadcrumbItem>
-                    {isLast ? (
-                      <BreadcrumbPage>
-                        {formatSegment(segment)}
-                      </BreadcrumbPage>
-                    ) : (
-                      <BreadcrumbLink href={href}>
-                        {formatSegment(segment)}
-                      </BreadcrumbLink>
-                    )}
-                  </BreadcrumbItem>
-
-                  {!isLast && <BreadcrumbSeparator />}
-                </React.Fragment>
-              )
-            })}
-          </BreadcrumbList>
-        </Breadcrumb>
+        {showBreadcrumbs && <Breadcrumbs pathname={pathname} />}
       </div>
 
-      {/* Logout button on the right */}
       <div className="ml-4 flex items-center">
         {isAuthenticated && (
-          <Button
-            variant="ghost"
-            className="h-8 px-3"
-            onClick={handleSignOut}
+          <SignOutButton
             disabled={isSigningOut}
-            aria-label="Sign out"
-            title="Sign out"
-            aria-busy={isSigningOut}
-          >
-            {isSigningOut ? (
-              <div className="flex items-center gap-2">
-                <Spinner className="h-4 w-4" />
-                <span className="text-sm">Signing out...</span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <LogOut className="h-4 w-4" />
-                <span className="text-sm">Sign out</span>
-              </div>
-            )}
-          </Button>
+            isSigningOut={isSigningOut}
+            onSignOut={handleSignOut}
+          />
         )}
       </div>
-
     </header>
   )
 }

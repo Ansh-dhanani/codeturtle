@@ -16,36 +16,33 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { ChevronsUpDown, LogOut, Settings } from "lucide-react"
 import Image from "next/image"
 import { useAuthStore } from "@/stores/auth-store"
-import { useState } from "react"
-import { toast } from "sonner"
 import { Spinner } from "@/components/ui/spinner"
-import { useRequireAuth } from "@/hooks/use-auth"
+import { useSignOut } from "@/hooks/use-signout"
 import Link from "next/link"
 import { ThemeToggleButton, useThemeToggle } from "./ui/shadcn-io/theme-toggle-button"
 
+/**
+ * Renders the sidebar footer containing user information and an account/action dropdown.
+ *
+ * Displays a skeleton large button when the user is not authenticated or user data is unavailable. When authenticated, shows a dropdown trigger with the user's avatar (or initial), name, and email. The dropdown includes:
+ * - an "Account" link to /account,
+ * - a "Theme" item that toggles the current theme,
+ * - a "Sign out" item that shows a spinner and disables while sign-out is in progress.
+ *
+ * The dropdown is positioned at the bottom on mobile and at the top otherwise, and the theme toggle reflects the current theme.
+ *
+ * @returns A JSX element rendering the sidebar footer with user menu and account/theme/sign-out actions.
+ */
 export function SidebarFooterContent() {
   const user = useAuthStore((state) => state.user)
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
   const { isMobile } = useSidebar()
   
   const { toggle, theme: currentTheme } = useThemeToggle('top-right')
-  const { signOut } = useRequireAuth()
-  const [isSigningOut, setIsSigningOut] = useState(false)
+  const { isSigningOut, handleSignOut } = useSignOut()
 
   const handleThemeToggle = () => {
     toggle()
-  }
-
-  const handleSignOut = async () => {
-    setIsSigningOut(true)
-    try {
-      await signOut()
-      toast.success('Successfully logged out')
-    } catch (error) {
-      console.error('Failed to sign out:', error)
-      toast.error('Failed to log out. Please try again.')
-      setIsSigningOut(false)
-    }
   }
 
   // Loading state
