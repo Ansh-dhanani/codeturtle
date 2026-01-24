@@ -17,7 +17,7 @@
 
   <p>
     <a href="https://github.com/Ansh-dhanani/codeturtle/stargazers"><img src="https://img.shields.io/github/stars/Ansh-dhanani/codeturtle?style=flat-square" alt="GitHub stars" /></a>
-    <a href="https://github.com/Ansh-dhanani/codeturtle/actions/workflows/checks.yml"><img src="https://github.com/Ansh-dhanani/codeturtle/actions/workflows/checks.yml/badge.svg" alt="Checks status" /></a>
+    </a>
     <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License" /></a>
     <a href="https://github.com/Ansh-dhanani/codeturtle/issues"><img src="https://img.shields.io/github/issues/Ansh-dhanani/codeturtle?style=flat-square" alt="Open issues" /></a>
   </p>
@@ -147,3 +147,5 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 <a href="https://github.com/Ansh-dhanani/codeturtle/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=Ansh-dhanani/codeturtle" alt="CodeTurtle contributors" />
 </a>
+
+<br/>
