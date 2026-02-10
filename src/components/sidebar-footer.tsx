@@ -36,6 +36,7 @@ export function SidebarFooterContent() {
     toggle()
   }
 
+// Asynchronously sign out user and display feedback
   const handleSignOut = async () => {
     setIsSigningOut(true)
     try {
