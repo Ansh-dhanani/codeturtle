@@ -17,9 +17,14 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+/** 
+ * Root layout metadata for SEO and page information.
+ * This metadata applies to the entire application and is used by search engines
+ * and social media platforms to display page information.
+ */
 export const metadata: Metadata = {
-  title: "CodeTurtle",
-  description: "Learn to code with CodeTurtle",
+  title: "CodeTurtle", // Browser tab title and primary heading for SEO
+  description: "Learn to code with CodeTurtle", // Meta description for search engines
 };
 
 export default function RootLayout({
