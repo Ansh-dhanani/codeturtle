@@ -7,6 +7,20 @@ import { cn } from "@/lib/utils"
 
 const THEMES = { light: "", dark: ".dark" } as const
 
+/**
+ * ChartConfig - Configuration type for chart data series
+ * Defines labels, icons, and color schemes for each data series in a chart
+ * Supports both static colors and theme-specific colors (light/dark mode)
+ * 
+ * @example
+ * const config = {
+ *   desktop: { label: "Desktop", color: "#3b82f6" },
+ *   mobile: {
+ *     label: "Mobile",
+ *     theme: { light: "#10b981", dark: "#34d399" }
+ *   }
+ * }
+ */
 export type ChartConfig = {
   [k in string]: {
     label?: React.ReactNode
@@ -23,6 +37,13 @@ type ChartContextProps = {
 
 const ChartContext = React.createContext<ChartContextProps | null>(null)
 
+/**
+ * useChart hook - Provides access to the chart configuration from ChartContext
+ * Must be used within a ChartContainer component
+ * 
+ * @throws Error if used outside of ChartContainer
+ * @returns The chart context with config object
+ */
 function useChart() {
   const context = React.useContext(ChartContext)
 
@@ -33,6 +54,24 @@ function useChart() {
   return context
 }
 
+/**
+ * ChartContainer component - Root wrapper for Recharts components with theme styling
+ * Provides chart configuration context and applies theme-aware styling
+ * Automatically generates CSS variables for colors based on light/dark theme
+ * 
+ * @param id - Optional identifier for the chart (auto-generated if not provided)
+ * @param className - Additional CSS classes for customization
+ * @param children - Recharts components (Bar, Line, Pie, etc.)
+ * @param config - Chart configuration object defining series colors and labels
+ * @param props - Standard div element props
+ * 
+ * @example
+ * <ChartContainer config={chartConfig} className="w-full h-64">
+ *   <BarChart data={data}>
+ *     <Bar dataKey="value" fill="var(--color-value)" />
+ *   </BarChart>
+ * </ChartContainer>
+ */
 function ChartContainer({
   id,
   className,
@@ -68,6 +107,15 @@ function ChartContainer({
   )
 }
 
+/**
+ * ChartStyle component - Generates theme-aware CSS custom properties for chart colors
+ * Creates dynamic style tags that set --color-* variables for each chart series
+ * Automatically switches between light and dark theme colors
+ * 
+ * @param id - The chart container's data-chart identifier
+ * @param config - Chart configuration with color/theme definitions
+ * @returns Style element with CSS custom properties or null if no colors defined
+ */
 const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
   const colorConfig = Object.entries(config).filter(
     ([, config]) => config.theme || config.color
@@ -103,6 +151,28 @@ ${colorConfig
 
 const ChartTooltip = RechartsPrimitive.Tooltip
 
+/**
+ * ChartTooltipContent component - Customizable tooltip for chart hover interactions
+ * Displays series values with icons, labels, and configurable indicators
+ * Supports different indicator styles (dot, line, dashed) and custom formatting
+ * 
+ * @param active - Whether the tooltip is currently active/visible
+ * @param payload - Array of payload objects containing series data
+ * @param className - Additional CSS classes for the tooltip container
+ * @param indicator - Visual indicator style ('dot' | 'line' | 'dashed')
+ * @param hideLabel - Hide the label row (default: false)
+ * @param hideIndicator - Hide color indicator before each series (default: false)
+ * @param label - The label text or key to display
+ * @param labelFormatter - Custom function to format the label
+ * @param labelClassName - CSS classes for the label element
+ * @param formatter - Custom function to format each series value
+ * @param color - Override indicator color
+ * @param nameKey - Key to extract series name from payload item
+ * @param labelKey - Key to extract label from payload item
+ * 
+ * @example
+ * <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
+ */
 function ChartTooltipContent({
   active,
   payload,
@@ -251,6 +321,20 @@ function ChartTooltipContent({
 
 const ChartLegend = RechartsPrimitive.Legend
 
+/**
+ * ChartLegendContent component - Customizable legend for chart series
+ * Displays series labels with color indicators or icons
+ * Positioned at top or bottom of chart with flexible layout
+ * 
+ * @param className - Additional CSS classes for the legend container
+ * @param hideIcon - Hide series icons and show color squares instead (default: false)
+ * @param payload - Array of legend payload objects from Recharts
+ * @param verticalAlign - Legend position ('top' | 'bottom')
+ * @param nameKey - Key to extract series name from payload item
+ * 
+ * @example
+ * <Legend content={<ChartLegendContent hideIcon={false} />} />
+ */
 function ChartLegendContent({
   className,
   hideIcon = false,
@@ -307,6 +391,18 @@ function ChartLegendContent({
   )
 }
 
+/**
+ * getPayloadConfigFromPayload - Helper function to extract chart config from Recharts payload
+ * Intelligently searches payload and nested payload objects for the matching config entry
+ * Falls back through multiple layers of data to find the correct series configuration
+ * 
+ * @param config - The ChartConfig object containing series definitions
+ * @param payload - Recharts payload object (can be nested)
+ * @param key - The key/name to look up in the config
+ * @returns The matching chart config entry or undefined if not found
+ * 
+ * @internal
+ */
 function getPayloadConfigFromPayload(
   config: ChartConfig,
   payload: unknown,
