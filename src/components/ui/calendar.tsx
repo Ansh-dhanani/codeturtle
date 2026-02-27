@@ -15,6 +15,25 @@ import {
 import { cn } from "@/lib/utils"
 import { Button, buttonVariants } from "@/components/ui/button"
 
+/**
+ * Calendar component - A fully-featured calendar picker built on react-day-picker
+ * Supports single date selection, date ranges, and flexible styling
+ * Provides RTL support and accessible navigation controls
+ * 
+ * @param className - Additional CSS classes for the root element
+ * @param classNames - Object containing custom class names for calendar parts (months, days, etc.)
+ * @param showOutsideDays - Whether to show days from adjacent months (default: true)
+ * @param captionLayout - Layout for the month/year caption ('label' or 'dropdowns')
+ * @param buttonVariant - Visual variant for navigation buttons (uses Button component variants)
+ * @param formatters - Custom formatting functions for dates
+ * @param components - Custom component overrides for calendar internals
+ * @param props - Additional react-day-picker props
+ * 
+ * @example
+ * <Calendar />
+ * <Calendar mode="range" />
+ * <Calendar showOutsideDays={false} captionLayout="dropdowns" />
+ */
 function Calendar({
   className,
   classNames,
@@ -179,6 +198,22 @@ function Calendar({
   )
 }
 
+/**
+ * CalendarDayButton component - Individual day button within the calendar grid
+ * Handles day-specific styling based on selection state (single, range start/end/middle)
+ * Manages focus state and provides accessible keyboard navigation
+ * 
+ * @param className - Additional CSS classes for the day button
+ * @param day - The date object for this day
+ * @param modifiers - Object containing day state modifiers (selected, focused, disabled, etc.)
+ * @param props - Standard button element props
+ * 
+ * Features:
+ * - Automatic focus management for keyboard navigation
+ * - Visual indicators for selected single dates and date ranges
+ * - Support for focused state styling
+ * - Responsive sizing based on CSS custom properties
+ */
 function CalendarDayButton({
   className,
   day,
