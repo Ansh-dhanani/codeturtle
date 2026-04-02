@@ -50,39 +50,39 @@ export async function fetchUserContribution(token: string, username: string) {
         }
     }`;
 
-    interface contributionData {
-      user: {
-        contributionsCollection: {
-            contributionCalendar: {
-              weeks: {
-                contributionDays: {
-                  date: string;
-                  contributionCount: number;
-                  color: string;
-                }[];
-              }[];
-              totalContributions: number;
-            };
+  interface contributionData {
+    user: {
+      contributionsCollection: {
+        contributionCalendar: {
+          weeks: {
+            contributionDays: {
+              date: string;
+              contributionCount: number;
+              color: string;
+            }[];
+          }[];
+          totalContributions: number;
         };
       };
-    }
+    };
+  }
 
-    try {
-      const response:contributionData = await octokit.graphql(query, { username });
-      return response.user.contributionsCollection.contributionCalendar;
-    }
-    catch (error) {
-        console.error("Error fetching user contributions:", error);
-        throw error;
-    }
+  try {
+    const response: contributionData = await octokit.graphql(query, { username });
+    return response.user.contributionsCollection.contributionCalendar;
+  }
+  catch (error) {
+    console.error("Error fetching user contributions:", error);
+    throw error;
+  }
 }
 
-export const getRepositories = async (page: number=1, perPage: number=10) => {
+export const getRepositories = async (page: number = 1, perPage: number = 10) => {
   const token = await getGithubToken();
   const octokit = new Octokit({
     auth: token,
   });
-  const {data} = await octokit.rest.repos.listForAuthenticatedUser({
+  const { data } = await octokit.rest.repos.listForAuthenticatedUser({
     visibility: "all",
     affiliation: "owner",
     per_page: perPage,
@@ -92,43 +92,15 @@ export const getRepositories = async (page: number=1, perPage: number=10) => {
   return data;
 }
 
-export const createWebhook = async (owner:string,repo:string) => {
+export const createWebhook = async (owner: string, repo: string) => {
   const token = await getGithubToken();
   const octokit = new Octokit({
     auth: token,
   });
-  // Verify token scopes so we can provide a helpful error when webhook APIs are forbidden
-  try {
-    const rootRes = await octokit.request('GET /');
-    const rawScopesHeader = rootRes.headers && (rootRes.headers['x-oauth-scopes'] || rootRes.headers['X-OAuth-Scopes']);
-    let scopesHeader = '';
-    if (typeof rawScopesHeader === 'string') {
-      scopesHeader = rawScopesHeader;
-    } else if (Array.isArray(rawScopesHeader)) {
-      scopesHeader = rawScopesHeader.join(',');
-    } else if (rawScopesHeader != null) {
-      scopesHeader = String(rawScopesHeader);
-    }
-
-    if (!scopesHeader.includes('admin:repo_hook') && !scopesHeader.includes('repo')) {
-      throw new Error(`GitHub token missing required scope 'admin:repo_hook'. Current scopes: ${scopesHeader || 'none'}. Reconnect your GitHub account and grant webhook permissions.`);
-    }
-  } catch (err: unknown) {
-    console.error('Error checking GitHub token scopes:', err);
-    // If we got a 401/403 here, surface a clearer message
-    if (err && typeof err === 'object' && 'status' in err) {
-      const error = err as { status: number };
-      if (error.status === 401 || error.status === 403) {
-        throw new Error('Invalid or expired GitHub token. Please reconnect your GitHub account.');
-      }
-    }
-    throw err;
-  }
-
   if (!process.env.NEXT_PUBLIC_APP_URL) {
     throw new Error("Webhook URL not configured");
   }
-  const baseAppUrl = process.env.NEXT_PUBLIC_APP_URL.replace(/\/+$/,'');
+  const baseAppUrl = process.env.NEXT_PUBLIC_APP_URL.replace(/\/+$/, '');
   const webhookUrl = `${baseAppUrl}/api/webhooks/github`;
   let hooks;
   try {
@@ -176,15 +148,15 @@ export const createWebhook = async (owner:string,repo:string) => {
   }
 }
 
-export const deleteWebhook = async (owner:string,repo:string,hookId:number) => {
+export const deleteWebhook = async (owner: string, repo: string, hookId: number) => {
   const token = await getGithubToken();
   const octokit = new Octokit({
     auth: token,
   });
-  const baseAppUrl = `${process.env.NEXT_PUBLIC_APP_URL}`.replace(/\/+$/,'');
+  const baseAppUrl = `${process.env.NEXT_PUBLIC_APP_URL}`.replace(/\/+$/, '');
   const webhookUrl = `${baseAppUrl}/api/webhooks/github`;
   try {
-    const {data:hooks}=await octokit.rest.repos.listWebhooks({
+    const { data: hooks } = await octokit.rest.repos.listWebhooks({
       owner,
       repo,
     });
@@ -203,4 +175,67 @@ export const deleteWebhook = async (owner:string,repo:string,hookId:number) => {
     console.error("Error deleting webhook:", error);
     throw error;
   }
+}
+
+
+export async function getRepoFileContents(
+  token: string,
+  repo: string,
+  owner: string,
+  path: string = ""
+): Promise<{ path: string, content: string }[]> {
+  const octokit = new Octokit({ auth: token });
+
+  const { data } = await octokit.rest.repos.getContent({
+    repo,
+    owner,
+    path
+  });
+
+  if (!Array.isArray(data)) {
+    // it is a file
+    if (data.type === "file" && data.content) {
+      return [{
+        path: data.path,
+        content: Buffer.from(data.content, "base64").toString('utf-8')
+      }]
+    }
+    return [];
+  }
+  let files: { path: string, content: string }[] = [];
+
+  const BINARY_EXTENSIONS = /\.(png|jpg|jpeg|gif|svg|bmp|ico|webp|tiff|psd|ai|mp4|mp3|wav|ogg|mov|avi|flv|mkv|pdf|docx?|xlsx?|pptx?|zip|tar|gz|rar|7z|exe|dll|so|dylib|bin|dat|db|sqlite|wasm|class|o|pyc|pyo|egg|whl|lock|lockb)$/i;
+
+  for (const item of data) {
+    if (item.type === "file") {
+      if (BINARY_EXTENSIONS.test(item.path)) {
+        continue;
+      }
+      const { data: fileData } = await octokit.rest.repos.getContent({
+        repo,
+        owner,
+        path: item.path
+      });
+      if (!Array.isArray(fileData) && fileData.type === "file" && fileData.content) {
+        try {
+          const decoded = Buffer.from(fileData.content, 'base64').toString('utf-8');
+          if (decoded.includes('\0')) {
+            continue;
+          }
+          files.push({
+            path: item.path,
+            content: decoded
+          });
+        } catch {
+          continue;
+        }
+      }
+    }
+    else if (item.type === "dir") {
+      const subFiles = await getRepoFileContents(token, repo, owner, item.path);
+      files = files.concat(subFiles);
+    }
+  }
+
+  return files;
 }

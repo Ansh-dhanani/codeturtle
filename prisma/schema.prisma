@@ -12,14 +12,85 @@ model User {
   email         String
   emailVerified Boolean   @default(false)
   image         String?
+  aiProvider    String    @default("google")
+  aiModel       String    @default("gemini-2.5-flash")
+  aiApiKey      String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  
+  subscription  Subscription?
+  usage         Usage[]
+  reviews       CodeReview[]
   sessions      Session[]
   accounts      Account[]
   repositories  Repository[]
 
   @@unique([email])
   @@map("user")
+}
+
+model Subscription {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  polarCustomerId String?  @unique
+  polarSubscriptionId String? @unique
+  plan            String   @default("free")
+  status          String   @default("active")
+  currentPeriodEnd DateTime?
+  cancelAtPeriodEnd Boolean @default(false)
+  usageLimit      Int      @default(10)
+  usageCount      Int      @default(0)
+  usageResetAt    DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@index([polarCustomerId])
+  @@index([status])
+  @@map("subscription")
+}
+
+model Usage {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type          String
+  count         Int      @default(0)
+  period        String
+  periodStart   DateTime
+  periodEnd     DateTime
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([userId, type, period])
+  @@index([userId, period])
+  @@map("usage")
+}
+
+model CodeReview {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  repositoryId  String
+  repository    Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  owner         String
+  repo          String
+  prNumber      Int
+  prTitle       String?
+  prUrl         String?
+  sha           String?
+  summary       String?
+  files         Json?
+  status        String   @default("pending")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+  @@index([repositoryId])
+  @@index([owner, repo, prNumber])
+  @@index([status])
+  @@map("code_review")
 }
 
 model Repository {
@@ -33,6 +104,7 @@ model Repository {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   hookId    BigInt?
   hookSecret String?
+  reviews   CodeReview[]
   
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

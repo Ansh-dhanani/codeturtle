@@ -12,7 +12,7 @@ import { toast } from 'sonner'
 import { useState } from 'react'
 
 const ProfileForm = () => {
-    const QueryClient=useQueryClient();
+    const queryClient=useQueryClient();
     const {data,isLoading}=useQuery({
         queryKey:['userProfile'],
         queryFn:getUserProfile,
@@ -23,10 +23,10 @@ const ProfileForm = () => {
     const[name,setName]=useState(data?.name || '');
 
     const updateMutation=useMutation({
-        mutationFn:async (data:{name:string})=> await updateUserProfile(data),
+        mutationFn:async (newData:{name:string})=> await updateUserProfile(newData),
         onSuccess: (result) => {
             if(result?.success){
-                QueryClient.invalidateQueries({queryKey:['userProfile']});
+                queryClient.invalidateQueries({queryKey:['userProfile']});
                 toast.success('Profile updated successfully');
             }
         },
@@ -41,7 +41,7 @@ const ProfileForm = () => {
     }
   return (
     <div>
-        <Card>
+        <Card key={data?.id}>
             <CardHeader>
                 <CardTitle>Profile Settings</CardTitle>
                 <CardDescription>Update your profile information</CardDescription>

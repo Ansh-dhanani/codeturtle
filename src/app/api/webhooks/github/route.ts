@@ -1,13 +1,10 @@
 import prisma from '@/lib/prisma';
 import crypto from 'crypto';
+import { inngest } from '@/inngest/client';
+import { createLogger } from '@/lib/logger';
 
-/**
- * Perform a timing-safe (constant-time) comparison of two strings.
- *
- * @param a - The first string to compare
- * @param b - The second string to compare
- * @returns `true` if the strings are equal, `false` otherwise. Returns `false` if the lengths differ or an error occurs during comparison.
- */
+const l = createLogger('webhook-github');
+
 function timingSafeCompare(a: string, b: string) {
   try {
     const bufA = Buffer.from(a);
@@ -19,12 +16,6 @@ function timingSafeCompare(a: string, b: string) {
   }
 }
 
-/**
- * Handle incoming GitHub webhook POST requests: verify HMAC signatures (using a repository-stored secret or GITHUB_WEBHOOK_SECRET), respond to pings, and perform basic dispatch for supported events (e.g., `pull_request`).
- *
- * @param req - The incoming HTTP request containing GitHub webhook headers and JSON payload
- * @returns An HTTP Response: `200` with JSON `{ handled: true }` for processed events, `200` with JSON `{ ok: true, message: 'pong' }` for ping events, or `401` with body `'Invalid signature'` when signature verification fails
- */
 export async function POST(req: Request) {
   const event = (req.headers.get('x-github-event') || '').toLowerCase();
   const delivery = req.headers.get('x-github-delivery') || '';
@@ -34,33 +25,49 @@ export async function POST(req: Request) {
   const buf = await req.arrayBuffer();
   const payload = Buffer.from(buf);
 
-  let parsedBody: Record<string, unknown> | null;
+  type ParsedBody = {
+    hook_id?: number;
+    repository?: { full_name?: string; owner?: { login?: string }; name?: string };
+    action?: string;
+    pull_request?: { number: number; title?: string; user?: { login?: string } };
+    sender?: { login?: string };
+    [key: string]: unknown;
+  };
+  let parsedBody: ParsedBody | null;
   try {
     parsedBody = JSON.parse(payload.toString());
   } catch (err) {
-    console.warn('Failed to parse webhook payload', err);
-    parsedBody = null;
+    l.warn('Failed to parse webhook payload', { delivery, error: (err as Error).message });
+    return new Response(JSON.stringify({ error: 'Invalid payload' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
   }
 
-  // Try to find the repository record to obtain the stored hook secret
-  let repoRecord: { hookSecret: string } | null = null;
+  let repoRecord: { hookSecret: string | null; userId: string; owner: string; name: string } | null = null;
   try {
     if (parsedBody?.hook_id && typeof parsedBody.hook_id === 'number') {
-      repoRecord = await prisma.repository.findFirst({ 
+      const found = await prisma.repository.findFirst({ 
         where: { hookId: BigInt(parsedBody.hook_id) },
-        select: { hookSecret: true }
+        select: { hookSecret: true, userId: true, owner: true, name: true }
       });
+      if (found) {
+        repoRecord = found;
+      }
     }
     if (!repoRecord && parsedBody?.repository?.full_name) {
-      repoRecord = await prisma.repository.findFirst({ where: { fullName: parsedBody.repository.full_name } });
+      const found = await prisma.repository.findFirst({ 
+        where: { fullName: parsedBody.repository.full_name },
+        select: { hookSecret: true, userId: true, owner: true, name: true }
+      });
+      if (found) {
+        repoRecord = found;
+      }
     }
   } catch (err) {
-    console.error('Error looking up repository for webhook:', err);
+    l.error('Error looking up repository for webhook', err as Error, { delivery });
   }
 
-  const secret = repoRecord?.hookSecret || process.env.GITHUB_WEBHOOK_SECRET;
+  const secret = repoRecord?.hookSecret ?? process.env.GITHUB_WEBHOOK_SECRET;
 
-  if (secret) {
+  if (secret && repoRecord) {
     const computed256 = 'sha256=' + crypto.createHmac('sha256', secret).update(payload).digest('hex');
     const computed1 = 'sha1=' + crypto.createHmac('sha1', secret).update(payload).digest('hex');
 
@@ -68,31 +75,42 @@ export async function POST(req: Request) {
     const valid1 = sig1 ? timingSafeCompare(sig1, computed1) : false;
 
     if (!valid256 && !valid1) {
-      console.warn(`Invalid webhook signature for delivery ${delivery}`);
+      l.warn('Invalid webhook signature', { delivery });
       return new Response('Invalid signature', { status: 401 });
     }
+  } else if (!repoRecord) {
+    l.warn('Repo not found in DB, skipping signature verification', { delivery, hookId: parsedBody?.hook_id, fullName: parsedBody?.repository?.full_name });
   } else {
-    console.warn(`No webhook secret found for delivery ${delivery} - skipping signature verification`);
+    l.warn('No webhook secret found', { delivery });
   }
 
-  // Handle ping quickly
   if (event === 'ping') {
-    console.log(`Received ping from GitHub (delivery=${delivery})`);
+    l.info('Received ping', { delivery });
     return new Response(JSON.stringify({ ok: true, message: 'pong' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   }
 
-  // Handle pull_request events (placeholder)
   if (event === 'pull_request') {
     try {
       const action = parsedBody?.action;
-      const repo = parsedBody?.repository?.full_name;
-      console.log(`Received pull_request event: action=${action} repo=${repo} delivery=${delivery}`);
-      // TODO: implement PR processing (e.g., enqueue job, run checks, etc.)
+      const repoFullName = parsedBody?.repository?.full_name;
+      const prNumber = parsedBody?.pull_request?.number;
+      const owner = parsedBody?.repository?.owner?.login || repoRecord?.owner;
+      const repo = parsedBody?.repository?.name || repoRecord?.name;
+      const userId = repoRecord?.userId;
+
+      l.info('Received pull_request event', { action, repo: repoFullName, prNumber, delivery });
+
+      if ((action === 'opened' || action === 'synchronize') && owner && repo && prNumber && userId) {
+        await inngest.send({
+          name: 'pull_request.opened',
+          data: { owner, repo, prNumber, userId, action },
+        });
+        l.info('Enqueued PR review', { owner, repo, prNumber });
+      }
     } catch (err) {
-      console.error('Error handling pull_request event:', err);
+      l.error('Error handling pull_request event', err as Error, { delivery });
     }
   }
 
-  // Respond 200 for all known events after processing
   return new Response(JSON.stringify({ handled: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 }

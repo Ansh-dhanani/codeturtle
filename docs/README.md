@@ -43,7 +43,7 @@ Notes:
 ```text
 src/
 ├── app/                # Next.js App Router
-├── api/                # API routes (auth, webhooks)
+│   ├── api/            # API routes (auth, webhooks)
 ├── lib/                # Auth, prisma client, utilities
 ├── components/         # Shared UI components
 ├── prisma/             # Prisma schema and migrations
