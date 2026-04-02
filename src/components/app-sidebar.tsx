@@ -26,12 +26,24 @@ import {
 } from "@/components/ui/sidebar"
 import { SidebarFooterContent } from "./sidebar-footer"
 import { SidebarHeaderContent } from "./sidebar-header"
+/**
+ * NavItem Interface
+ * 
+ * Represents a single navigation menu item with:
+ * - title: Display text for the menu item
+ * - url: Navigation path for the link
+ * - icon: Lucide React icon component to display
+ */
 
 interface NavItem {
   title: string
   url: string
   icon: React.ComponentType
 }
+/**
+ * Main navigation items for the application
+ * Includes core functionality: Dashboard, Repositories, Analytics, and Settings
+ */
 
 const generalItems = [
   {
@@ -54,6 +66,10 @@ const generalItems = [
     url: "/analytics",
     icon: ChartLine,
   },
+  /**
+ * Secondary navigation items for support and information
+ * Includes: Docs, Support, and Pricing pages
+ */
   {
     title: "Settings",
     url: "/settings",
@@ -78,6 +94,16 @@ const otherItems = [
     icon: TicketPercentIcon,
   },
 ]
+/**
+ * AppSidebar Component
+ * 
+ * Main sidebar wrapper that organizes navigation into two groups:
+ * 1. Application: Core features for managing projects and insights
+ * 2. Others: Additional resources and account management
+ * 
+ * Renders header, content sections with nav items, and footer.
+ * Supports collapsible icon-only mode on smaller screens.
+ */
 
 export function AppSidebar() {
   return (
@@ -112,6 +138,14 @@ export function AppSidebar() {
     </Sidebar>
   )
 }
+/**
+ * NavItems Component
+ * 
+ * Renders a list of navigation menu items with links.
+ * Automatically closes the sidebar on mobile when a link is clicked.
+ * 
+ * @param items - Array of navigation items to display
+ */
 
 // Separate component to use useSidebar hook
 function NavItems({ items }: { items: NavItem[] }) {
