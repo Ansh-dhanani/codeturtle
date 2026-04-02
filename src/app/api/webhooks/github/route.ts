@@ -64,19 +64,6 @@ export async function POST(req: Request) {
   } catch (err) {
     l.error('Error looking up repository for webhook', err as Error, { delivery });
   }
-    }
-    if (!repoRecord && parsedBody?.repository?.full_name) {
-      const found = await prisma.repository.findFirst({ 
-        where: { fullName: parsedBody.repository.full_name },
-        select: { hookSecret: true, userId: true, owner: true, name: true }
-      });
-      if (found) {
-        repoRecord = found;
-      }
-    }
-  } catch (err) {
-    l.error('Error looking up repository for webhook', err as Error, { delivery });
-  }
 
   const secret = repoRecord?.hookSecret ?? process.env.GITHUB_WEBHOOK_SECRET;
 
