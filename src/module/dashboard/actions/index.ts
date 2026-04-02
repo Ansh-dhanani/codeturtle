@@ -4,28 +4,7 @@ import { fetchUserContribution, getGithubToken } from "@/module/github/github";
 import { Octokit } from "octokit";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
-
-type ContributionDay = {
-  date: string;
-  contributionCount: number;
-  color: string;
-};
-
-type ContributionWeek = {
-  contributionDays: ContributionDay[];
-};
-
-type MonthlyContributionDay = {
-  date: string;
-  contributionCount: number;
-};
-
-type MonthlyContributionWeek = {
-  contributionDays: MonthlyContributionDay[];
-};
-
-// Sample review data for last 6 months
-const SAMPLE_REVIEWS = [10, 8, 7, 6, 5, 8];
+import { prisma } from "@/lib/prisma";
 
 export async function getContributionGraph() {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -45,8 +24,8 @@ export async function getContributionGraph() {
     throw new Error("Failed to fetch contribution data");
   }
 
-  const contributions = calendar.weeks.flatMap((week: ContributionWeek) =>
-      week.contributionDays.map((day: ContributionDay) => ({
+  const contributions = calendar.weeks.flatMap((week: { contributionDays: Array<{ date: string; contributionCount: number; color: string }> }) =>
+      week.contributionDays.map((day: { date: string; contributionCount: number; color: string }) => ({
           date: day.date,
           count: day.contributionCount,
           color: day.color,
@@ -74,8 +53,9 @@ export async function getDashboardStats() {
 
   const { data: user } = await octokit.rest.users.getAuthenticated();
 
-  //todo to fetch total connected repos
-  const totalRepos = 30;
+  const totalRepos = await prisma.repository.count({
+    where: { userId: session.user.id },
+  });
   const calendar = await fetchUserContribution(token, user.login);
   const totalCommits = calendar?.totalContributions || 0;
 
@@ -84,8 +64,9 @@ export async function getDashboardStats() {
   });
   const totalPRs = prs.total_count || 0;
 
-  // Calculate total AI reviews from monthly sample data
-  const totalAIReviews = SAMPLE_REVIEWS.reduce((sum, val) => sum + val, 0);
+  const totalAIReviews = await prisma.codeReview.count({
+    where: { userId: session.user.id, status: "completed" },
+  });
 
   return {
     totalRepos,
@@ -95,18 +76,6 @@ export async function getDashboardStats() {
   };
 }
 
-/**
- * Fetches the monthly activity data for the authenticated user from GitHub,
- * including commits, pull requests (PRs), and reviews over the last 6 months.
- * 
- * This function retrieves the user's contribution calendar to count commits per month,
- * and uses the GitHub search API to count PRs created by the user. Reviews are currently
- * not implemented and default to 0.
- * 
- * @returns A promise that resolves to an array of objects, each containing the month name
- * (e.g., "Jan 2023"), and the counts for commits, PRs, and reviews. Returns null if an error occurs.
- * @throws {Error} If the user is unauthorized or no GitHub token is found.
- */
 export async function getMonthlyActivity() {
   try {
     const session = await auth.api.getSession({ headers: await headers() });
@@ -151,8 +120,8 @@ export async function getMonthlyActivity() {
       monthlyData[monthKey] = { commits: 0, prs: 0, reviews: 0 };
     }
 
-    calendar?.weeks.forEach((week: MonthlyContributionWeek) => {
-      week.contributionDays.forEach((day: MonthlyContributionDay) => {
+    calendar?.weeks.forEach((week: { contributionDays: Array<{ date: string; contributionCount: number }> }) => {
+      week.contributionDays.forEach((day: { date: string; contributionCount: number }) => {
         const date = new Date(day.date);
         const monthKey = `${
           monthsNames[date.getMonth()]
@@ -163,12 +132,8 @@ export async function getMonthlyActivity() {
       });
     });
 
-    // Fetch PRs and reviews from GitHub API
     const sixMonthsAgo = new Date();
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-
-    // TODO: Fetch real review data from database
-    // Reviews remain at 0 until implemented
 
     const { data: prs } = await octokit.rest.search.issuesAndPullRequests({
       q: `is:pr author:${user.login} type:pr created:>=${
@@ -187,11 +152,23 @@ export async function getMonthlyActivity() {
       }
     });
 
-    // Add sample review data that sums to total AI reviews
-    let reviewIndex = 0;
-    Object.keys(monthlyData).forEach((monthKey) => {
-      monthlyData[monthKey].reviews = SAMPLE_REVIEWS[reviewIndex] || 0;
-      reviewIndex++;
+    const reviews = await prisma.codeReview.findMany({
+      where: {
+        userId: session.user.id,
+        status: "completed",
+        createdAt: { gte: sixMonthsAgo },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+
+    reviews.forEach((review) => {
+      const reviewDate = new Date(review.createdAt);
+      const monthKey = `${
+        monthsNames[reviewDate.getMonth()]
+      } ${reviewDate.getFullYear()}`;
+      if (monthlyData[monthKey]) {
+        monthlyData[monthKey].reviews += 1;
+      }
     });
 
     return Object.keys(monthlyData).map((name) => ({

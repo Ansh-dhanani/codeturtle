@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { createWebhook, getRepositories } from "@/module/github/github";
+import { inngest } from "@/inngest/client";
 
 export const fetchUserRepositories = async (page: number = 1, perPage: number = 10) => {
     try {
@@ -63,7 +64,17 @@ export const connectRepository = async (owner: string,repo: string,githubId: num
         });
 
         //todo increment user's connected repository count
-        //todo trigger repository indexing for rag (fire and forget)
+        try {
+            await inngest.send({name: "repository.connected",
+                data: {
+                    owner,
+                    repo,
+                    userId: session.user.id,
+                },
+            });
+        } catch (error) {
+            console.error("Error sending inngest event:", error);
+        }
 
         return webhook;
     } catch (error) {

@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   ChartLine,
   Book,
+  FileSearch,
 } from "lucide-react"
 import { TicketPercentIcon } from "./ui/icons/lucide-ticket-percent"
 import Link from "next/link"
@@ -42,6 +43,11 @@ const generalItems = [
     title: "Repositories",
     url: "/repositories",
     icon: Book,
+  },
+  {
+    title: "Reviews",
+    url: "/reviews",
+    icon: FileSearch,
   },
   {
     title: "Analytics",

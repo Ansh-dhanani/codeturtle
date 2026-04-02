@@ -24,6 +24,7 @@ import { useConnectRepository } from '@/module/repository/hooks/use-connect-repo
 interface Repository {
   id: number
   name: string
+  full_name: string
   fullName: string
   description: string | null
   html_url: string
@@ -31,6 +32,7 @@ interface Repository {
   language: string | null
   topics: string[]
   isConnected: boolean
+  [key: string]: unknown
 }
 
 const Page = () => {
@@ -99,11 +101,11 @@ const Page = () => {
   const repositories =
     data?.pages
       .flat()
-      .filter((repo: Repository) =>
-        repo.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        repo.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        repo.language?.toLowerCase().includes(searchQuery.toLowerCase())
-      ) ?? []
+      .filter((repo) =>
+        (repo as Repository).name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (repo as Repository).description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (repo as Repository).language?.toLowerCase().includes(searchQuery.toLowerCase())
+      ).map((repo) => repo as Repository) ?? []
 
   /* Infinite Scroll */
   useEffect(() => {

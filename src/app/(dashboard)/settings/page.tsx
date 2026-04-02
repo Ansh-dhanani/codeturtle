@@ -2,16 +2,19 @@ import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import prisma from "@/lib/prisma";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Github } from "lucide-react";
+import { Github, Brain, Zap, Crown } from "lucide-react";
 import { GithubConnectButton } from "@/components/settings/GithubConnectButton";
 import ProfileForm from "@/components/pages/profile-form";
 import { RepositoryList } from "@/components/github/repository-list";
+import { AIModelSelector } from "@/components/settings/ai-model-selector";
 
 export const dynamic = 'force-dynamic';
 
 export default async function SettingsPage() {
   const session = await auth.api.getSession({ headers: await headers() });
   let githubConnected = false;
+  let userAiModel = "gemini-2.5-flash";
+  let userAiProvider = "google";
   if (session) {
     const account = await prisma.account.findFirst({
       where: {
@@ -20,6 +23,12 @@ export default async function SettingsPage() {
       },
     });
     githubConnected = !!account;
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { aiModel: true, aiProvider: true },
+    });
+    userAiModel = user?.aiModel || "gemini-2.5-flash";
+    const userAiProvider = user?.aiProvider || "google";
   }
   return (
     <div className="space-y-6">
@@ -29,6 +38,8 @@ export default async function SettingsPage() {
           Configure your account and application settings
         </p>
       </div>
+
+      <AIModelSelector currentProvider={userAiProvider} currentModel={userAiModel} />
 
       <Card>
         <CardHeader>

@@ -20,6 +20,7 @@ export async function getUserProfile() {
       select: {
         id: true,
         name: true,
+        aiModel: true,
       },
     });
     return user;
@@ -57,6 +58,30 @@ export async function updateUserProfile(data: { name: string }) {
   } catch (error) {
     console.error("Error updating user profile type:", error);
     throw new Error("Failed to update user profile type");
+  }
+}
+
+export async function updateUserAIModel(provider: string, model: string, apiKey?: string) {
+  try {
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    });
+    if (!session?.user) {
+      throw new Error("User not authenticated");
+    }
+    await prisma.user.update({
+      where: { id: session.user.id },
+      data: {
+        aiProvider: provider,
+        aiModel: model,
+        ...(apiKey ? { aiApiKey: apiKey } : {}),
+      },
+    });
+    revalidatePath("/settings", "page");
+    return { success: true, provider, model };
+  } catch (error) {
+    console.error("Error updating AI model:", error);
+    throw new Error("Failed to update AI model");
   }
 }
 

@@ -7,16 +7,14 @@ interface User {
   image: string | null
   emailVerified: boolean
 }
-export function useUserQuery(userId?: string) {
+export function useUserQuery() {
   return useQuery({
-    queryKey: ['user', userId],
+    queryKey: ['user'],
     queryFn: async () => {
-      if (!userId) return null
-      const res = await fetch(`/api/user/${userId}`)
+      const res = await fetch('/api/user')
       if (!res.ok) throw new Error('Failed to fetch user')
       return res.json() as Promise<User>
     },
-    enabled: !!userId,
   })
 }
 export function useUpdateAvatarMutation() {
