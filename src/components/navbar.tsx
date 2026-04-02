@@ -11,6 +11,17 @@ import { toast } from "sonner"
 import { useSidebar } from "@/components/ui/sidebar"
 import { Breadcrumbs } from "@/components/ui/shared/Breadcrumbs"
 import { SignOutButton } from "@/components/ui/shared/SignOutButton"
+/**
+ * formatSegment Function
+ * 
+ * Converts URL path segments into human-readable breadcrumb labels.
+ * Removes hyphens and capitalizes each word.
+ * 
+ * Example: "my-repository" -> "My Repository"
+ * 
+ * @param segment - The URL segment to format
+ * @returns Formatted breadcrumb label
+ */
 
 interface NavbarProps {
   /** Show the mobile menu toggle (hamburger) */
