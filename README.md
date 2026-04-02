@@ -10,7 +10,7 @@
   <!-- Fallback for some markdown renderers: Markdown image with relative path -->
   <!-- ![CodeTurtle logo](./public/codeturtle-logo.svg) -->
 
-  <h1 style="margin-top: 0.5rem;">Turtie AI</h1>
+  <h1 style="margin-top: 0.5rem;">CoderTurtle</h1>
 
   <p style="margin: 0.25rem 0 0.75rem 0;"><strong>A production-ready Next.js platform with GitHub OAuth, Webhooks, and Prisma.</strong><br />
   <small>Built for teams and developers shipping GitHub-integrated products with confidence.</small></p>
