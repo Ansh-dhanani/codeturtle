@@ -3,13 +3,36 @@
 import React, { useState } from "react";
 import { Card } from "./ui/card";
 import TorchCheckbox from "./ui/torch";
+/**
+ * ContactForm Component
+ * 
+ * A two-column contact form component that allows users to send messages to support.
+ * Left column displays introductory text and verification checkbox.
+ * Right column contains the form with name, email, and message fields.
+ * 
+ * Features:
+ * - Form state management with controlled inputs
+ * - Email validation
+ * - Responsive layout (stacked on mobile, side-by-side on desktop)
+ * - Form submission handling with data reset
+ */
 
 const ContactForm = () => {
+    /**
+   * Form state management
+   * Tracks user input for name, email, and message fields
+   */
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     message: ''
   });
+   /**
+   * Handles input field changes
+   * Updates the formData state as user types in any form field
+   * 
+   * @param e - Change event from input or textarea element
+   */
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setFormData({
@@ -17,6 +40,13 @@ const ContactForm = () => {
       [e.target.name]: e.target.value
     });
   };
+    /**
+   * Handles form submission
+   * Logs form data (in production, would send to API endpoint)
+   * Resets form fields after successful submission
+   * 
+   * @param e - Form submission event
+   */
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
