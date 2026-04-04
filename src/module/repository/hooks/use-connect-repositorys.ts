@@ -13,8 +13,11 @@ export const useConnectRepository = () => {
             toast("Repository connected: The repository has been successfully connected.");
             queryClient.invalidateQueries({ queryKey: ['repositories'] });
         },
-        onError: (error: any) => {
-            toast("Error connecting repository: " + (error.message || "An error occurred while connecting the repository."));
+        onError: (error: unknown) => {
+            const message = error && typeof error === 'object' && 'message' in error 
+                ? (error as { message: string }).message 
+                : "An error occurred while connecting the repository.";
+            toast("Error connecting repository: " + message);
             console.error(error);
         },
     });

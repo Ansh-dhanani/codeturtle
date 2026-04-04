@@ -133,16 +133,19 @@ export const createWebhook = async (owner: string, repo: string) => {
       repo,
     });
     hooks = response.data;
-  } catch (error: any) {
-    if (error.status === 404) {
-      throw new Error("You don't have permission to create webhooks on this repository. Make sure you have admin access to the repository.");
+  } catch (error: unknown) {
+    if (error && typeof error === 'object' && 'status' in error) {
+      const err = error as { status: number };
+      if (err.status === 404) {
+        throw new Error("You don't have permission to create webhooks on this repository. Make sure you have admin access to the repository.");
+      }
     }
     throw error;
   }
   const existingHook = hooks.find(hook => hook.config.url === webhookUrl);
   if (existingHook) {
     // Return consistent shape: include `secret` property (null when existing)
-    return { ...existingHook, secret: null } as any;
+    return { ...existingHook, secret: null } as typeof existingHook & { secret: string | null };
   }
   try {
     const secret = crypto.randomBytes(32).toString('hex');
@@ -158,9 +161,12 @@ export const createWebhook = async (owner: string, repo: string) => {
     });
     // Return webhook data plus the generated secret so the server can persist it
     return { ...response.data, secret };
-  } catch (error: any) {
-    if (error.status === 404) {
-      throw new Error("You don't have permission to create webhooks on this repository. Make sure you have admin access to the repository.");
+  } catch (error: unknown) {
+    if (error && typeof error === 'object' && 'status' in error) {
+      const err = error as { status: number };
+      if (err.status === 404) {
+        throw new Error("You don't have permission to create webhooks on this repository. Make sure you have admin access to the repository.");
+      }
     }
     throw error;
   }

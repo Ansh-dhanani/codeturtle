@@ -1,5 +1,5 @@
 'use client'
-import React, { useEffect } from 'react'
+import React from 'react'
 import {
     Card, CardContent, CardHeader, CardTitle, CardDescription
 } from '@/components/ui/card'
@@ -13,7 +13,6 @@ import { useState } from 'react'
 
 const ProfileForm = () => {
     const queryClient=useQueryClient();
-    const[name,setName]=useState('');
     const {data,isLoading}=useQuery({
         queryKey:['userProfile'],
         queryFn:getUserProfile,
@@ -21,11 +20,7 @@ const ProfileForm = () => {
         refetchOnWindowFocus:false,
     });
 
-    useEffect(()=>{
-        if(data){
-            setName(data.name || '');
-        }
-    }, [data]);
+    const[name,setName]=useState(data?.name || '');
 
     const updateMutation=useMutation({
         mutationFn:async (newData:{name:string})=> await updateUserProfile(newData),

@@ -11,7 +11,7 @@ function timingSafeCompare(a: string, b: string) {
     const bufB = Buffer.from(b);
     if (bufA.length !== bufB.length) return false;
     return crypto.timingSafeEqual(bufA, bufB);
-  } catch (err) {
+  } catch (_err) {
     return false;
   }
 }

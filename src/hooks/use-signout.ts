@@ -21,7 +21,6 @@ export function useSignOut() {
       await signOut()
       toast.success("Successfully logged out")
     } catch (error) {
-      // eslint-disable-next-line no-console
       console.error("Failed to sign out:", error)
       toast.error("Failed to sign out. Please try again.")
     } finally {

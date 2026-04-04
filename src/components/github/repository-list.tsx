@@ -110,7 +110,7 @@ export function RepositoryList(){
                                 <Badge className='bg-muted text-muted-foreground'>{(() => {
                                     try {
                                         return new URL(repo.url).hostname;
-                                    } catch (err) {
+                                    } catch (_err) {
                                         return repo.url || 'unknown';
                                     }
                                 })()}</Badge>

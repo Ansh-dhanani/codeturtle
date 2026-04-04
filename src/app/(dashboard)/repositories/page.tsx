@@ -18,7 +18,6 @@ import {
   PlugZap,
 } from 'lucide-react'
 import { useRepositories } from '@/module/repository/hooks/use-repositories'
-import { connectRepository } from '@/module/repository/actions'
 import { useConnectRepository } from '@/module/repository/hooks/use-connect-repositorys'
 
 interface Repository {
