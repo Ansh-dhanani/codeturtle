@@ -11,6 +11,50 @@ import { checkPerPRReviewLimit, checkUsageLimit, incrementUsage, isSpecialLimitl
 
 const l = createLogger("inngest-functions");
 const MAX_FREE_PLAN_PR_COMMITS = 3;
+const PRISMA_MAX_RETRIES = 3;
+
+function sleep(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientPrismaError(error: unknown): boolean {
+    if (!error || typeof error !== "object") return false;
+    const maybeCode = (error as { code?: string }).code;
+    const message = (error as Error).message || "";
+
+    if (maybeCode === "P1001" || maybeCode === "P1002" || maybeCode === "P1017") return true;
+    return /(server has closed the connection|connection.*closed|can't reach database server|timed out)/i.test(message);
+}
+
+async function withPrismaRetry<T>(label: string, fn: () => Promise<T>): Promise<T> {
+    let attempt = 0;
+
+    while (attempt < PRISMA_MAX_RETRIES) {
+        try {
+            return await fn();
+        } catch (error) {
+            attempt += 1;
+            if (!isTransientPrismaError(error) || attempt >= PRISMA_MAX_RETRIES) {
+                throw error;
+            }
+
+            l.warn("Transient Prisma error, retrying", {
+                label,
+                attempt,
+                maxRetries: PRISMA_MAX_RETRIES,
+                error: (error as Error).message,
+            });
+
+            await sleep(250 * attempt);
+        }
+    }
+
+    throw new Error(`Prisma retry exhausted for ${label}`);
+}
+
+function isTransientReviewError(message: string): boolean {
+    return /(timeout|timed out|econnreset|etimedout|503|502|504|rate limit|temporar|try again)/i.test(message);
+}
 
 async function getPreferredOctokit(owner: string, repo: string, userId: string): Promise<Octokit> {
     try {
@@ -130,7 +174,7 @@ async ({ event, step }) => {
 
 
 export const processPREvent = inngest.createFunction(
-{id: "process-pr-event"},
+{id: "process-pr-event", retries: 1},
 {event: "pull_request.opened"},
 
 async ({ event, step }) => {
@@ -262,36 +306,39 @@ async ({ event, step }) => {
 
     const review = await step.run("Generate PR review", async ()=>{
         const { generateCodeReview } = await import("@/module/ai/lib/review");
-        const user = await prisma.user.findUnique({ where: { id: userId }, select: { aiModel: true } });
-        return await generateCodeReview({ owner, repo, prNumber, userId, model: user?.aiModel });
+        return await generateCodeReview({ owner, repo, prNumber, userId });
     })
 
     await step.run("Store review", async ()=>{
-        const dbRepo = await prisma.repository.findFirst({
-            where: { owner, name: repo, userId },
-        });
+        const dbRepo = await withPrismaRetry("load-repository-for-store", () =>
+            prisma.repository.findFirst({
+                where: { owner, name: repo, userId },
+            }),
+        );
         if (!dbRepo) {
             throw new Error(`Repository ${owner}/${repo} is not connected for user ${userId}.`);
         }
-        await prisma.codeReview.create({
-            data: {
-                userId,
-                owner,
-                repo,
-                prNumber,
-                repositoryId: dbRepo.id,
-                summary: review.summary,
-                files: {
-                    issues: review.issues,
-                    suggestions: review.suggestions,
-                    overallScore: review.overallScore,
-                    positives: review.positives,
-                    architectureNotes: review.architectureNotes,
-                } satisfies Prisma.InputJsonValue,
-                status: "completed",
-            },
-        });
-        await incrementUsage(userId);
+        await withPrismaRetry("create-code-review", () =>
+            prisma.codeReview.create({
+                data: {
+                    userId,
+                    owner,
+                    repo,
+                    prNumber,
+                    repositoryId: dbRepo.id,
+                    summary: review.summary,
+                    files: {
+                        issues: review.issues,
+                        suggestions: review.suggestions,
+                        overallScore: review.overallScore,
+                        positives: review.positives,
+                        architectureNotes: review.architectureNotes,
+                    } satisfies Prisma.InputJsonValue,
+                    status: "completed",
+                },
+            }),
+        );
+        await withPrismaRetry("increment-usage", () => incrementUsage(userId));
         l.info("PR review stored", { owner, repo, prNumber, score: review.overallScore });
     })
 
@@ -314,6 +361,8 @@ async ({ event, step }) => {
 
         const prBody = [
             `## CodeTurtle AI Review — Score: ${review.overallScore}/10`,
+            "",
+            `Reviewer model: ${review.reviewerProvider}/${review.reviewerModel}`,
             "",
             review.summary,
             "",
@@ -354,7 +403,7 @@ async ({ event, step }) => {
                 body: [
                     "## CodeTurtle AI Review",
                     "",
-                    "Review complete. See the review above for details.",
+                    `Review complete using ${review.reviewerProvider}/${review.reviewerModel}. See the review above for details.`,
                 ].join("\n"),
             });
             l.info("Updated progress comment to complete", { owner, repo, prNumber, commentId: progressCommentId });
@@ -369,13 +418,49 @@ async ({ event, step }) => {
         await step.run("Post user-friendly failure comment", async ()=>{
             try {
                 const octokit = await getPreferredOctokit(owner, repo, userId);
+                let userSettings: { aiProvider: string; aiModel: string } | null = null;
+                try {
+                    userSettings = await withPrismaRetry("load-user-settings-for-failure-comment", () =>
+                        prisma.user.findUnique({
+                            where: { id: userId },
+                            select: { aiProvider: true, aiModel: true },
+                        }),
+                    );
+                } catch (settingsErr) {
+                    l.warn("Could not load user settings for failure comment", {
+                        owner,
+                        repo,
+                        prNumber,
+                        userId,
+                        error: settingsErr instanceof Error ? settingsErr.message : "Unknown error",
+                    });
+                }
+
+                const configuredProvider = userSettings?.aiProvider || "google";
+                const rawConfiguredModel = userSettings?.aiModel || "gemini-2.5-flash";
+                const configuredModel =
+                    configuredProvider === "openrouter" && rawConfiguredModel === "moonshotai/kimi-k2:free"
+                        ? "moonshotai/kimi-k2"
+                        : rawConfiguredModel;
+
                 const helpText = /bad credentials|401|unauthorized/i.test(errorMessage)
-                    ? "Please reconnect your GitHub account in settings and try again."
+                    ? "Likely cause: GitHub authorization has expired. Please reconnect your GitHub account in settings and try again."
+                    : /decommissioned|no longer supported|unknown model|model .* not found|unsupported model/i.test(errorMessage)
+                    ? "Likely cause: selected model is deprecated/unsupported by provider. Pick a newer model in settings and retry."
+                    : /no endpoints found/i.test(errorMessage)
+                    ? "Likely cause: the selected model is currently unavailable on its provider. Please switch model in settings (for OpenRouter, use openrouter/auto or qwen/qwen3.6-plus:free) and retry."
+                    : /api key is missing|loadapikeyerror|pass it using the 'apiKey' parameter/i.test(errorMessage)
+                    ? "Likely cause: the selected provider API key is missing or invalid. Add a valid key for this provider in settings, or switch to Google Gemini."
+                    : /rate limit|429/i.test(errorMessage)
+                    ? "Likely cause: provider rate limit. Please retry in a few minutes."
+                    : /provider returned error|ai_apicallerror/i.test(errorMessage)
+                    ? "Likely cause: provider-side model routing failure. Please switch model in settings (recommended: openrouter/auto) and retry."
                     : "Please retry in a few minutes. If this keeps happening, contact support with this PR link.";
                 const body = [
                     "## CodeTurtle AI Review",
                     "",
                     "Sorry, I could not complete this automated review.",
+                    `Configured reviewer model: ${configuredProvider}/${configuredModel}`,
                     helpText,
                 ].join("\n");
 
@@ -399,7 +484,15 @@ async ({ event, step }) => {
             }
         });
 
-        throw err;
+        if (isTransientReviewError(errorMessage)) {
+            throw err;
+        }
+
+        return {
+            failed: true,
+            retried: false,
+            reason: errorMessage,
+        };
     }
 });
 

@@ -101,6 +101,28 @@ export async function POST(req: Request) {
       l.info('Received pull_request event', { action, repo: repoFullName, prNumber, delivery });
 
       if ((action === 'opened' || action === 'synchronize') && owner && repo && prNumber && userId) {
+        if (action === 'synchronize') {
+          const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+          const recentReview = await prisma.codeReview.findFirst({
+            where: {
+              userId,
+              owner,
+              repo,
+              prNumber,
+              createdAt: { gte: twoMinutesAgo },
+            },
+            select: { id: true },
+          });
+
+          if (recentReview) {
+            l.info('Skipping duplicate synchronize event (debounced)', { owner, repo, prNumber, delivery });
+            return new Response(JSON.stringify({ handled: true, skipped: 'debounced' }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+        }
+
         await inngest.send({
           name: 'pull_request.opened',
           data: { owner, repo, prNumber, userId, action },

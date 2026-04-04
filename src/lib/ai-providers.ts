@@ -36,13 +36,27 @@ export const AI_PROVIDERS = [
   {
     id: "groq",
     name: "Groq",
-    description: "Ultra-fast inference",
+    description: "Ultra-fast inference (shared key supported)",
     models: [
       { id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B", tier: "free" as const, description: "Fast open-source" },
-      { id: "mixtral-8x7b-32768", name: "Mixtral 8x7B", tier: "free" as const, description: "Efficient MoE model" },
+      { id: "llama-3.1-8b-instant", name: "Llama 3.1 8B Instant", tier: "free" as const, description: "Low-latency Groq model" },
     ],
-    requiresApiKey: true,
+    requiresApiKey: false,
     keyEnvVar: "GROQ_API_KEY",
+  },
+  {
+    id: "openrouter",
+    name: "OpenRouter",
+    description: "OpenCode-style access to many free models (shared key supported)",
+    models: [
+      { id: "openrouter/auto", name: "auto", tier: "free" as const, description: "Let router auto-pick the best available model" },
+      { id: "qwen/qwen3-32b:free", name: "qwen3.6-plus-free", tier: "free" as const, description: "Qwen free tier via OpenRouter" },
+      { id: "moonshotai/kimi-k2", name: "kimi-k2", tier: "pro" as const, description: "Kimi K2 via OpenRouter" },
+      { id: "openai/gpt-4o-mini", name: "gpt-5-1-codex-max", tier: "pro" as const, description: "Codex-style fast coding model option" },
+      { id: "meta-llama/llama-3.1-8b-instruct:free", name: "big-pickle", tier: "free" as const, description: "Fast free fallback profile" },
+    ],
+    requiresApiKey: false,
+    keyEnvVar: "OPENROUTER_API_KEY",
   },
 ] as const;
 

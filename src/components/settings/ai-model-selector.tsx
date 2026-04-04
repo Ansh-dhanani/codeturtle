@@ -24,7 +24,8 @@ export function AIModelSelector({ currentProvider, currentModel }: { currentProv
       await updateUserAIModel(selectedProvider, selectedModel, apiKey || undefined);
       toast.success("AI model updated");
     } catch (error) {
-      toast.error("Failed to update AI model");
+      const message = error instanceof Error ? error.message : "Failed to update AI model";
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -96,16 +97,21 @@ export function AIModelSelector({ currentProvider, currentModel }: { currentProv
                   </div>
                 ))}
 
-                {provider.requiresApiKey && (
+                {(provider.requiresApiKey || ("keyEnvVar" in provider && Boolean(provider.keyEnvVar))) && (
                   <div className="flex items-center gap-2 pt-2">
                     <Key className="h-4 w-4 text-muted-foreground" />
-                    <Input
-                      type="password"
-                      placeholder={`Enter ${provider.name} API key`}
-                      value={selectedProvider === provider.id ? apiKey : ""}
-                      onChange={(e) => setApiKey(e.target.value)}
-                      className="text-sm"
-                    />
+                    <div className="w-full space-y-1">
+                      <Input
+                        type="password"
+                        placeholder={provider.requiresApiKey ? `Enter ${provider.name} API key` : `Optional: Enter your own ${provider.name} API key`}
+                        value={selectedProvider === provider.id ? apiKey : ""}
+                        onChange={(e) => setApiKey(e.target.value)}
+                        className="text-sm"
+                      />
+                      {!provider.requiresApiKey && (
+                        <p className="text-xs text-muted-foreground">No user API key needed if shared server key is configured.</p>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

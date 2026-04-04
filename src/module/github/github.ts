@@ -1,4 +1,4 @@
-import { Octokit } from "octokit";
+﻿import { Octokit } from "octokit";
 import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { headers } from "next/headers.js";
@@ -86,7 +86,7 @@ export const getRepositories = async (page: number = 1, perPage: number = 10) =>
     visibility: "all",
     affiliation: "owner",
     per_page: perPage,
-    page: page,
+    page,
     sort: "updated",
   });
   return data;
@@ -94,61 +94,59 @@ export const getRepositories = async (page: number = 1, perPage: number = 10) =>
 
 export const createWebhook = async (owner: string, repo: string) => {
   const token = await getGithubToken();
-  const octokit = new Octokit({
-    auth: token,
-  });
-  // Verify token scopes so we can provide a helpful error when webhook APIs are forbidden
+  const octokit = new Octokit({ auth: token });
+
+  // Scope headers can be absent for some token flows. If absent, continue and rely on webhook API checks.
   try {
-    const rootRes = await octokit.request('GET /');
-    const rawScopesHeader = rootRes.headers && (rootRes.headers['x-oauth-scopes'] || rootRes.headers['X-OAuth-Scopes']);
-    let scopesHeader = '';
-    if (typeof rawScopesHeader === 'string') {
+    const rootRes = await octokit.request("GET /");
+    const rawScopesHeader = rootRes.headers && (rootRes.headers["x-oauth-scopes"] || rootRes.headers["X-OAuth-Scopes"]);
+    let scopesHeader = "";
+
+    if (typeof rawScopesHeader === "string") {
       scopesHeader = rawScopesHeader;
     } else if (Array.isArray(rawScopesHeader)) {
-      scopesHeader = rawScopesHeader.join(',');
+      scopesHeader = rawScopesHeader.join(",");
     } else if (rawScopesHeader != null) {
       scopesHeader = String(rawScopesHeader);
     }
 
-    if (!scopesHeader.includes('admin:repo_hook') && !scopesHeader.includes('repo')) {
-      throw new Error(`GitHub token missing required scope 'admin:repo_hook'. Current scopes: ${scopesHeader || 'none'}. Reconnect your GitHub account and grant webhook permissions.`);
+    if (scopesHeader && !scopesHeader.includes("admin:repo_hook") && !scopesHeader.includes("repo")) {
+      throw new Error(
+        `GitHub token missing required scope 'admin:repo_hook'. Current scopes: ${scopesHeader}. Reconnect your GitHub account and grant webhook permissions.`,
+      );
     }
   } catch (err: any) {
-    console.error('Error checking GitHub token scopes:', err);
-    // If we got a 401/403 here, surface a clearer message
+    console.error("Error checking GitHub token scopes:", err);
     if (err && (err.status === 401 || err.status === 403)) {
-      throw new Error('Invalid or expired GitHub token. Please reconnect your GitHub account.');
+      throw new Error("Invalid or expired GitHub token. Please reconnect your GitHub account.");
     }
-    throw err;
   }
+
   if (!process.env.NEXT_PUBLIC_APP_URL) {
     throw new Error("Webhook URL not configured");
   }
-  const baseAppUrl = process.env.NEXT_PUBLIC_APP_URL.replace(/\/+$/, '');
+
+  const baseAppUrl = process.env.NEXT_PUBLIC_APP_URL.replace(/\/+$/, "");
   const webhookUrl = `${baseAppUrl}/api/webhooks/github`;
+
   let hooks;
   try {
-    const response = await octokit.rest.repos.listWebhooks({
-      owner,
-      repo,
-    });
+    const response = await octokit.rest.repos.listWebhooks({ owner, repo });
     hooks = response.data;
-  } catch (error: unknown) {
-    if (error && typeof error === 'object' && 'status' in error) {
-      const err = error as { status: number };
-      if (err.status === 404) {
-        throw new Error("You don't have permission to create webhooks on this repository. Make sure you have admin access to the repository.");
-      }
+  } catch (error: any) {
+    if (error?.status === 404 || error?.status === 403) {
+      throw new Error("Webhook permission denied. Reconnect GitHub and grant repository + webhook permissions, then retry.");
     }
     throw error;
   }
-  const existingHook = hooks.find(hook => hook.config.url === webhookUrl);
+
+  const existingHook = hooks.find((hook) => hook.config.url === webhookUrl);
   if (existingHook) {
-    // Return consistent shape: include `secret` property (null when existing)
     return { ...existingHook, secret: null } as typeof existingHook & { secret: string | null };
   }
+
   try {
-    const secret = crypto.randomBytes(32).toString('hex');
+    const secret = crypto.randomBytes(32).toString("hex");
     const response = await octokit.rest.repos.createWebhook({
       owner,
       repo,
@@ -159,14 +157,13 @@ export const createWebhook = async (owner: string, repo: string) => {
       },
       events: ["pull_request"],
     });
-    // Return webhook data plus the generated secret so the server can persist it
     return { ...response.data, secret };
-  } catch (error: unknown) {
-    if (error && typeof error === 'object' && 'status' in error) {
-      const err = error as { status: number };
-      if (err.status === 404) {
-        throw new Error("You don't have permission to create webhooks on this repository. Make sure you have admin access to the repository.");
-      }
+  } catch (error: any) {
+    if (error?.status === 404 || error?.status === 403) {
+      throw new Error("Webhook permission denied. Reconnect GitHub and grant repository + webhook permissions, then retry.");
+    }
+    if (error?.status === 422) {
+      throw new Error("GitHub rejected webhook creation (422). Remove duplicate hooks if needed and retry.");
     }
     throw error;
   }
@@ -177,15 +174,12 @@ export const deleteWebhook = async (owner: string, repo: string, hookId: number)
   const octokit = new Octokit({
     auth: token,
   });
-  const baseAppUrl = `${process.env.NEXT_PUBLIC_APP_URL}`.replace(/\/+$/, '');
+  const baseAppUrl = `${process.env.NEXT_PUBLIC_APP_URL}`.replace(/\/+$/, "");
   const webhookUrl = `${baseAppUrl}/api/webhooks/github`;
   try {
-    const { data: hooks } = await octokit.rest.repos.listWebhooks({
-      owner,
-      repo,
-    });
+    const { data: hooks } = await octokit.rest.repos.listWebhooks({ owner, repo });
 
-    const hooktoDelete = hooks.find(hook => hook.id === hookId && hook.config.url === webhookUrl);
+    const hooktoDelete = hooks.find((hook) => hook.id === hookId && hook.config.url === webhookUrl);
     if (hooktoDelete) {
       await octokit.rest.repos.deleteWebhook({
         owner,
@@ -201,32 +195,31 @@ export const deleteWebhook = async (owner: string, repo: string, hookId: number)
   }
 }
 
-
 export async function getRepoFileContents(
   token: string,
   repo: string,
   owner: string,
-  path: string = ""
-): Promise<{ path: string, content: string }[]> {
+  path: string = "",
+): Promise<{ path: string; content: string }[]> {
   const octokit = new Octokit({ auth: token });
 
   const { data } = await octokit.rest.repos.getContent({
     repo,
     owner,
-    path
+    path,
   });
 
   if (!Array.isArray(data)) {
-    // it is a file
     if (data.type === "file" && data.content) {
       return [{
         path: data.path,
-        content: Buffer.from(data.content, "base64").toString('utf-8')
-      }]
+        content: Buffer.from(data.content, "base64").toString("utf-8"),
+      }];
     }
     return [];
   }
-  let files: { path: string, content: string }[] = [];
+
+  let files: { path: string; content: string }[] = [];
 
   const BINARY_EXTENSIONS = /\.(png|jpg|jpeg|gif|svg|bmp|ico|webp|tiff|psd|ai|mp4|mp3|wav|ogg|mov|avi|flv|mkv|pdf|docx?|xlsx?|pptx?|zip|tar|gz|rar|7z|exe|dll|so|dylib|bin|dat|db|sqlite|wasm|class|o|pyc|pyo|egg|whl|lock|lockb)$/i;
 
@@ -238,24 +231,23 @@ export async function getRepoFileContents(
       const { data: fileData } = await octokit.rest.repos.getContent({
         repo,
         owner,
-        path: item.path
+        path: item.path,
       });
       if (!Array.isArray(fileData) && fileData.type === "file" && fileData.content) {
         try {
-          const decoded = Buffer.from(fileData.content, 'base64').toString('utf-8');
-          if (decoded.includes('\0')) {
+          const decoded = Buffer.from(fileData.content, "base64").toString("utf-8");
+          if (decoded.includes("\0")) {
             continue;
           }
           files.push({
             path: item.path,
-            content: decoded
+            content: decoded,
           });
         } catch {
           continue;
         }
       }
-    }
-    else if (item.type === "dir") {
+    } else if (item.type === "dir") {
       const subFiles = await getRepoFileContents(token, repo, owner, item.path);
       files = files.concat(subFiles);
     }

@@ -4,6 +4,18 @@ import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { deleteWebhook } from "@/module/github/github";
+import { AI_PROVIDERS } from "@/lib/ai-providers";
+
+function isApiKeyFormatValidForProvider(provider: string, apiKey: string): boolean {
+  const key = apiKey.trim();
+  if (!key) return true;
+
+  if (provider === "openrouter") return key.startsWith("sk-or-");
+  if (provider === "groq") return key.startsWith("gsk_");
+  if (provider === "anthropic") return key.startsWith("sk-ant-");
+  if (provider === "openai") return key.startsWith("sk-") && !key.startsWith("sk-or-") && !key.startsWith("sk-ant-");
+  return true;
+}
 
 export async function getUserProfile() {
   try {
@@ -69,16 +81,32 @@ export async function updateUserAIModel(provider: string, model: string, apiKey?
     if (!session?.user) {
       throw new Error("User not authenticated");
     }
+
+    const normalizedModel =
+      provider === "openrouter" && model === "moonshotai/kimi-k2:free"
+        ? "moonshotai/kimi-k2"
+        : model;
+
+    const providerConfig = AI_PROVIDERS.find((p) => p.id === provider);
+    const modelConfig = providerConfig?.models.find((m) => m.id === normalizedModel);
+    if (!providerConfig || !modelConfig) {
+      throw new Error("Invalid AI provider or model selection");
+    }
+
+    if (apiKey && !isApiKeyFormatValidForProvider(provider, apiKey)) {
+      throw new Error(`The provided API key does not match ${providerConfig.name}.`);
+    }
+
     await prisma.user.update({
       where: { id: session.user.id },
       data: {
         aiProvider: provider,
-        aiModel: model,
+        aiModel: normalizedModel,
         ...(apiKey ? { aiApiKey: apiKey } : {}),
       },
     });
     revalidatePath("/settings", "page");
-    return { success: true, provider, model };
+    return { success: true, provider, model: normalizedModel };
   } catch (error) {
     console.error("Error updating AI model:", error);
     throw new Error("Failed to update AI model");

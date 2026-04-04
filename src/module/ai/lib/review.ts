@@ -37,6 +37,81 @@ const CodeReviewSchema = z.object({
 });
 
 type CodeReview = z.infer<typeof CodeReviewSchema>;
+type CodeReviewWithReviewer = CodeReview & {
+  reviewerProvider: string;
+  reviewerModel: string;
+};
+
+const REVIEW_MAX_TOKENS = 4096;
+const REVIEW_LOW_CREDIT_MAX_TOKENS = 1200;
+
+const PRISMA_MAX_RETRIES = 3;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientPrismaError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const maybeCode = (error as { code?: string }).code;
+  const message = (error as Error).message || "";
+
+  if (maybeCode === "P1001" || maybeCode === "P1002" || maybeCode === "P1017") return true;
+  return /(server has closed the connection|connection.*closed|can't reach database server|timed out)/i.test(message);
+}
+
+function getProviderScopedApiKey(provider: string, userApiKey?: string | null): string | undefined {
+  if (!userApiKey) return undefined;
+
+  const key = userApiKey.trim();
+  if (!key) return undefined;
+
+  if (provider === "openrouter") {
+    return key.startsWith("sk-or-") ? key : undefined;
+  }
+
+  if (provider === "groq") {
+    return key.startsWith("gsk_") ? key : undefined;
+  }
+
+  if (provider === "anthropic") {
+    return key.startsWith("sk-ant-") ? key : undefined;
+  }
+
+  if (provider === "openai") {
+    return key.startsWith("sk-") && !key.startsWith("sk-or-") && !key.startsWith("sk-ant-")
+      ? key
+      : undefined;
+  }
+
+  return undefined;
+}
+
+async function withPrismaRetry<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  let attempt = 0;
+
+  while (attempt < PRISMA_MAX_RETRIES) {
+    try {
+      return await fn();
+    } catch (error) {
+      attempt += 1;
+      if (!isTransientPrismaError(error) || attempt >= PRISMA_MAX_RETRIES) {
+        throw error;
+      }
+
+      logger.warn("Transient Prisma error, retrying", {
+        label,
+        attempt,
+        maxRetries: PRISMA_MAX_RETRIES,
+        error: (error as Error).message,
+      });
+
+      await sleep(250 * attempt);
+    }
+  }
+
+  throw new Error(`Prisma retry exhausted for ${label}`);
+}
 
 const SYSTEM_PROMPT = `You are a senior software engineer conducting a thorough code review.
 
@@ -87,17 +162,23 @@ export async function generateCodeReview(params: {
   userId: string;
   model?: string;
   provider?: string;
-}): Promise<CodeReview> {
+}): Promise<CodeReviewWithReviewer> {
   const { owner, repo, prNumber, userId, model, provider } = params;
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { aiProvider: true, aiModel: true, aiApiKey: true },
-  });
+  const user = await withPrismaRetry("load-user-ai-settings", () =>
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { aiProvider: true, aiModel: true, aiApiKey: true },
+    }),
+  );
 
   const selectedProvider = provider || user?.aiProvider || "google";
   const selectedModel = model || user?.aiModel || "gemini-2.5-flash";
-  const userApiKey = user?.aiApiKey;
+  const normalizedSelectedModel =
+    selectedProvider === "openrouter" && selectedModel === "moonshotai/kimi-k2:free"
+      ? "moonshotai/kimi-k2"
+      : selectedModel;
+  const userApiKey = getProviderScopedApiKey(selectedProvider, user?.aiApiKey);
 
   let octokit: Octokit | null = null;
   try {
@@ -114,9 +195,11 @@ export async function generateCodeReview(params: {
   }
 
   if (!octokit) {
-    const account = await prisma.account.findFirst({
-      where: { userId, providerId: "github" },
-    });
+    const account = await withPrismaRetry("load-github-account", () =>
+      prisma.account.findFirst({
+        where: { userId, providerId: "github" },
+      }),
+    );
 
     if (!account?.accessToken) {
       throw new Error("No usable GitHub credentials found (GitHub App or user OAuth token).");
@@ -140,9 +223,11 @@ export async function generateCodeReview(params: {
 
   if (changedFiles.length > 0) {
     try {
-      const repoRecord = await prisma.repository.findFirst({
-        where: { owner, name: repo },
-      });
+      const repoRecord = await withPrismaRetry("load-repository-record", () =>
+        prisma.repository.findFirst({
+          where: { owner, name: repo },
+        }),
+      );
 
       if (repoRecord) {
         const queries = changedFiles.slice(0, 5).map(async (file) => {
@@ -175,25 +260,355 @@ ${files.map((f) => `- ${f.filename} (${f.status}, +${f.additions}/-${f.deletions
 
 Provide a structured review with specific issues, suggestions, and an overall score.`;
 
-  logger.info("Generating AI review", { owner, repo, prNumber, contextChunks: contextChunks.length, provider: selectedProvider, model: selectedModel });
+  logger.info("Generating AI review", { owner, repo, prNumber, contextChunks: contextChunks.length, provider: selectedProvider, model: normalizedSelectedModel });
+
+  const runReviewGeneration = async (modelToUse: any, maxOutputTokens = REVIEW_MAX_TOKENS) => {
+    return generateObject({
+      model: modelToUse,
+      system: SYSTEM_PROMPT,
+      prompt: userPrompt,
+      schema: CodeReviewSchema,
+      maxOutputTokens,
+    });
+  };
 
   let aiModel;
+  let reviewerProvider = selectedProvider;
+  let reviewerModel = normalizedSelectedModel;
   if (selectedProvider === "openai") {
-    const openaiClient = userApiKey ? createOpenAI({ apiKey: userApiKey }) : openai;
-    aiModel = openaiClient(selectedModel);
+    const openAiApiKey = userApiKey || process.env.OPENAI_API_KEY;
+    if (!openAiApiKey) {
+      logger.warn("OPENAI_API_KEY is missing, falling back to Google Gemini", {
+        owner,
+        repo,
+        prNumber,
+      });
+      reviewerProvider = "google";
+      reviewerModel = "gemini-2.5-flash";
+      aiModel = google(reviewerModel);
+    } else {
+      const openaiClient = createOpenAI({ apiKey: openAiApiKey });
+      aiModel = openaiClient(normalizedSelectedModel);
+    }
+  } else if (selectedProvider === "groq") {
+    const groqApiKey = userApiKey || process.env.GROQ_API_KEY;
+    if (!groqApiKey) {
+      logger.warn("GROQ_API_KEY is missing, falling back to Google Gemini", {
+        owner,
+        repo,
+        prNumber,
+      });
+      reviewerProvider = "google";
+      reviewerModel = "gemini-2.5-flash";
+      aiModel = google(reviewerModel);
+    } else {
+      const groqClient = createOpenAI({
+        apiKey: groqApiKey,
+        baseURL: "https://api.groq.com/openai/v1",
+      });
+      aiModel = groqClient(normalizedSelectedModel);
+    }
+  } else if (selectedProvider === "openrouter") {
+    const openRouterApiKey = userApiKey || process.env.OPENROUTER_API_KEY;
+    if (!openRouterApiKey) {
+      logger.warn("OPENROUTER_API_KEY is missing, falling back to Google Gemini", {
+        owner,
+        repo,
+        prNumber,
+      });
+      reviewerProvider = "google";
+      reviewerModel = "gemini-2.5-flash";
+      aiModel = google(reviewerModel);
+    } else {
+      const openRouterClient = createOpenAI({
+        apiKey: openRouterApiKey,
+        baseURL: "https://openrouter.ai/api/v1",
+      });
+      aiModel = openRouterClient(normalizedSelectedModel);
+    }
   } else if (selectedProvider === "anthropic") {
-    const anthropicClient = userApiKey ? createAnthropic({ apiKey: userApiKey }) : anthropic;
-    aiModel = anthropicClient(selectedModel);
+    const anthropicApiKey = userApiKey || process.env.ANTHROPIC_API_KEY;
+    if (!anthropicApiKey) {
+      logger.warn("ANTHROPIC_API_KEY is missing, falling back to Google Gemini", {
+        owner,
+        repo,
+        prNumber,
+      });
+      reviewerProvider = "google";
+      reviewerModel = "gemini-2.5-flash";
+      aiModel = google(reviewerModel);
+    } else {
+      const anthropicClient = createAnthropic({ apiKey: anthropicApiKey });
+      aiModel = anthropicClient(normalizedSelectedModel);
+    }
   } else {
-    aiModel = google(selectedModel);
+    aiModel = google(normalizedSelectedModel);
   }
 
-  const { object } = await generateObject({
-    model: aiModel,
-    system: SYSTEM_PROMPT,
-    prompt: userPrompt,
-    schema: CodeReviewSchema,
-  });
+  let object!: CodeReview;
+  try {
+    ({ object } = await runReviewGeneration(aiModel));
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : "Unknown error";
+    const noEndpointError = /no endpoints found/i.test(errorMessage);
+    const insufficientCreditsError = /requires more credits|fewer max_tokens|can only afford|max_tokens/i.test(errorMessage);
+    const providerReturnedError = /provider returned error|ai_apicallerror/i.test(errorMessage);
+    const missingProviderKeyError = /api key is missing|loadapikeyerror|pass it using the 'apiKey' parameter/i.test(errorMessage);
+    const modelLifecycleError = /decommissioned|no longer supported|unknown model|model .* not found|unsupported model/i.test(errorMessage);
+
+    if (selectedProvider === "openrouter" && (noEndpointError || insufficientCreditsError || providerReturnedError)) {
+      logger.warn("OpenRouter review failed; attempting resilient fallback path", {
+        owner,
+        repo,
+        prNumber,
+        model: reviewerModel,
+        noEndpointError,
+        insufficientCreditsError,
+        providerReturnedError,
+      });
+
+      const openRouterApiKey = userApiKey || process.env.OPENROUTER_API_KEY;
+      if (openRouterApiKey) {
+        const openRouterClient = createOpenAI({
+          apiKey: openRouterApiKey,
+          baseURL: "https://openrouter.ai/api/v1",
+        });
+
+        const fallbackModels = [
+          "openrouter/auto",
+          "qwen/qwen3.6-plus:free",
+          "meta-llama/llama-3.1-8b-instruct:free",
+        ];
+
+        let recovered = false;
+        if (insufficientCreditsError) {
+          try {
+            ({ object } = await runReviewGeneration(openRouterClient(reviewerModel), REVIEW_LOW_CREDIT_MAX_TOKENS));
+            recovered = true;
+            logger.info("Recovered by reducing OpenRouter max tokens", {
+              owner,
+              repo,
+              prNumber,
+              model: reviewerModel,
+              maxTokens: REVIEW_LOW_CREDIT_MAX_TOKENS,
+            });
+          } catch (reducedTokenErr) {
+            logger.warn("Reduced-token retry failed on OpenRouter", {
+              owner,
+              repo,
+              prNumber,
+              model: reviewerModel,
+              error: reducedTokenErr instanceof Error ? reducedTokenErr.message : "Unknown error",
+            });
+          }
+        }
+
+        for (const fallbackModel of fallbackModels) {
+          if (recovered) break;
+          if (fallbackModel === reviewerModel) continue;
+
+          try {
+            ({ object } = await runReviewGeneration(
+              openRouterClient(fallbackModel),
+              insufficientCreditsError ? REVIEW_LOW_CREDIT_MAX_TOKENS : REVIEW_MAX_TOKENS,
+            ));
+            reviewerProvider = "openrouter";
+            reviewerModel = fallbackModel;
+            recovered = true;
+            logger.info("OpenRouter fallback model succeeded", {
+              owner,
+              repo,
+              prNumber,
+              fallbackModel,
+            });
+            break;
+          } catch (fallbackErr) {
+            logger.warn("OpenRouter fallback model failed", {
+              owner,
+              repo,
+              prNumber,
+              fallbackModel,
+              error: fallbackErr instanceof Error ? fallbackErr.message : "Unknown error",
+            });
+          }
+        }
+
+        if (!recovered) {
+          reviewerProvider = "google";
+          reviewerModel = "gemini-2.5-flash";
+          ({ object } = await runReviewGeneration(
+            google(reviewerModel),
+            insufficientCreditsError ? REVIEW_LOW_CREDIT_MAX_TOKENS : REVIEW_MAX_TOKENS,
+          ));
+          logger.info("Fell back to Google after OpenRouter endpoint failures", {
+            owner,
+            repo,
+            prNumber,
+          });
+        }
+      } else {
+        reviewerProvider = "google";
+        reviewerModel = "gemini-2.5-flash";
+        ({ object } = await runReviewGeneration(
+          google(reviewerModel),
+          insufficientCreditsError ? REVIEW_LOW_CREDIT_MAX_TOKENS : REVIEW_MAX_TOKENS,
+        ));
+        logger.info("Fell back to Google because OpenRouter key is missing", {
+          owner,
+          repo,
+          prNumber,
+        });
+      }
+    } else if (missingProviderKeyError) {
+      logger.warn("Provider key missing during generation; falling back to Google", {
+        owner,
+        repo,
+        prNumber,
+        selectedProvider,
+        selectedModel: reviewerModel,
+      });
+
+      reviewerProvider = "google";
+      reviewerModel = "gemini-2.5-flash";
+      ({ object } = await runReviewGeneration(google(reviewerModel), REVIEW_MAX_TOKENS));
+    } else if (selectedProvider === "groq" && (modelLifecycleError || providerReturnedError)) {
+      logger.warn("Groq model failed; attempting Groq fallback models", {
+        owner,
+        repo,
+        prNumber,
+        selectedModel: reviewerModel,
+      });
+
+      const groqApiKey = userApiKey || process.env.GROQ_API_KEY;
+      const groqClient = groqApiKey
+        ? createOpenAI({
+            apiKey: groqApiKey,
+            baseURL: "https://api.groq.com/openai/v1",
+          })
+        : null;
+
+      const groqFallbackModels = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
+      let recovered = false;
+
+      if (groqClient) {
+        for (const fallbackModel of groqFallbackModels) {
+          if (fallbackModel === reviewerModel) continue;
+
+          try {
+            ({ object } = await runReviewGeneration(groqClient(fallbackModel)));
+            reviewerProvider = "groq";
+            reviewerModel = fallbackModel;
+            recovered = true;
+            logger.info("Groq fallback model succeeded", { owner, repo, prNumber, fallbackModel });
+            break;
+          } catch (fallbackErr) {
+            logger.warn("Groq fallback model failed", {
+              owner,
+              repo,
+              prNumber,
+              fallbackModel,
+              error: fallbackErr instanceof Error ? fallbackErr.message : "Unknown error",
+            });
+          }
+        }
+      }
+
+      if (!recovered) {
+        reviewerProvider = "google";
+        reviewerModel = "gemini-2.5-flash";
+        ({ object } = await runReviewGeneration(google(reviewerModel), REVIEW_MAX_TOKENS));
+        logger.info("Fell back to Google after Groq model failure", { owner, repo, prNumber });
+      }
+    } else if (selectedProvider === "anthropic" && (modelLifecycleError || providerReturnedError)) {
+      logger.warn("Anthropic model failed; attempting Anthropic fallback models", {
+        owner,
+        repo,
+        prNumber,
+        selectedModel: reviewerModel,
+      });
+
+      const anthropicApiKey = userApiKey || process.env.ANTHROPIC_API_KEY;
+      const anthropicClient = anthropicApiKey ? createAnthropic({ apiKey: anthropicApiKey }) : null;
+
+      const anthropicFallbackModels = ["claude-haiku-3-5-20241022", "claude-sonnet-4-20250514"];
+      let recovered = false;
+
+      if (anthropicClient) {
+        for (const fallbackModel of anthropicFallbackModels) {
+          if (fallbackModel === reviewerModel) continue;
+
+          try {
+            ({ object } = await runReviewGeneration(anthropicClient(fallbackModel)));
+            reviewerProvider = "anthropic";
+            reviewerModel = fallbackModel;
+            recovered = true;
+            logger.info("Anthropic fallback model succeeded", { owner, repo, prNumber, fallbackModel });
+            break;
+          } catch (fallbackErr) {
+            logger.warn("Anthropic fallback model failed", {
+              owner,
+              repo,
+              prNumber,
+              fallbackModel,
+              error: fallbackErr instanceof Error ? fallbackErr.message : "Unknown error",
+            });
+          }
+        }
+      }
+
+      if (!recovered) {
+        reviewerProvider = "google";
+        reviewerModel = "gemini-2.5-flash";
+        ({ object } = await runReviewGeneration(google(reviewerModel), REVIEW_MAX_TOKENS));
+        logger.info("Fell back to Google after Anthropic model failure", { owner, repo, prNumber });
+      }
+    } else if (selectedProvider === "openai" && (modelLifecycleError || providerReturnedError)) {
+      logger.warn("OpenAI model failed; attempting OpenAI fallback models", {
+        owner,
+        repo,
+        prNumber,
+        selectedModel: reviewerModel,
+      });
+
+      const openAiApiKey = userApiKey || process.env.OPENAI_API_KEY;
+      const openAiClient = openAiApiKey ? createOpenAI({ apiKey: openAiApiKey }) : null;
+
+      const openAiFallbackModels = ["gpt-4o-mini", "gpt-4o"];
+      let recovered = false;
+
+      if (openAiClient) {
+        for (const fallbackModel of openAiFallbackModels) {
+          if (fallbackModel === reviewerModel) continue;
+
+          try {
+            ({ object } = await runReviewGeneration(openAiClient(fallbackModel)));
+            reviewerProvider = "openai";
+            reviewerModel = fallbackModel;
+            recovered = true;
+            logger.info("OpenAI fallback model succeeded", { owner, repo, prNumber, fallbackModel });
+            break;
+          } catch (fallbackErr) {
+            logger.warn("OpenAI fallback model failed", {
+              owner,
+              repo,
+              prNumber,
+              fallbackModel,
+              error: fallbackErr instanceof Error ? fallbackErr.message : "Unknown error",
+            });
+          }
+        }
+      }
+
+      if (!recovered) {
+        reviewerProvider = "google";
+        reviewerModel = "gemini-2.5-flash";
+        ({ object } = await runReviewGeneration(google(reviewerModel), REVIEW_MAX_TOKENS));
+        logger.info("Fell back to Google after OpenAI model failure", { owner, repo, prNumber });
+      }
+    } else {
+      throw err;
+    }
+  }
 
   logger.info("AI review generated", {
     owner,
@@ -204,7 +619,11 @@ Provide a structured review with specific issues, suggestions, and an overall sc
     suggestions: object.suggestions.length,
   });
 
-  return object;
+  return {
+    ...object,
+    reviewerProvider,
+    reviewerModel,
+  };
 }
 
 export async function generateFileReview(params: {
@@ -242,6 +661,7 @@ Provide a structured review with specific issues, suggestions, and an overall sc
     system: SYSTEM_PROMPT,
     prompt: userPrompt,
     schema: CodeReviewSchema,
+    maxOutputTokens: REVIEW_MAX_TOKENS,
   });
 
   return object;
