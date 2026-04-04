@@ -7,9 +7,10 @@ import { indexCodebase, deleteRepoVectors } from "@/module/ai/lib/rag";
 import { createLogger } from "@/lib/logger";
 import { Prisma } from "@prisma/client";
 import { Octokit } from "octokit";
-import { checkPerPRReviewLimit, checkUsageLimit, incrementUsage } from "@/lib/billing.server";
+import { checkPerPRReviewLimit, checkUsageLimit, incrementUsage, isSpecialLimitlessUser } from "@/lib/billing.server";
 
 const l = createLogger("inngest-functions");
+const MAX_FREE_PLAN_PR_COMMITS = 3;
 
 async function getPreferredOctokit(owner: string, repo: string, userId: string): Promise<Octokit> {
     try {
@@ -186,6 +187,58 @@ async ({ event, step }) => {
         });
         l.warn("Per-PR review limit reached; skipping PR review", { owner, repo, prNumber, userId, action, perPrUsage });
         return { skipped: true, reason: "per_pr_limit_reached", perPrUsage };
+    }
+
+    const commitPolicy = await step.run("Check free plan commit policy", async ()=>{
+        const specialLimitless = await isSpecialLimitlessUser(userId);
+        if (specialLimitless) {
+            return { allowed: true, commits: 0 };
+        }
+
+        const subscription = await prisma.subscription.findUnique({
+            where: { userId },
+            select: { plan: true },
+        });
+
+        if ((subscription?.plan || "free") !== "free") {
+            return { allowed: true, commits: 0 };
+        }
+
+        const octokit = await getPreferredOctokit(owner, repo, userId);
+        const { data: pr } = await octokit.rest.pulls.get({ owner, repo, pull_number: prNumber });
+        const commits = pr.commits || 0;
+        return { allowed: commits <= MAX_FREE_PLAN_PR_COMMITS, commits };
+    });
+
+    if (!commitPolicy.allowed) {
+        await step.run("Post free plan commit policy comment", async ()=>{
+            const octokit = await getPreferredOctokit(owner, repo, userId);
+            await octokit.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: prNumber,
+                body: [
+                    "## CodeTurtle AI Review",
+                    "",
+                    `This PR has ${commitPolicy.commits} commits.`,
+                    `Free plan supports automated reviews for PRs with up to ${MAX_FREE_PLAN_PR_COMMITS} commits.`,
+                    "Please split this PR into smaller changes or upgrade your plan to continue.",
+                    "",
+                    "Review was not generated for this PR.",
+                ].join("\n"),
+            });
+        });
+
+        l.warn("Free plan commit policy blocked PR review", {
+            owner,
+            repo,
+            prNumber,
+            userId,
+            action,
+            commits: commitPolicy.commits,
+        });
+
+        return { skipped: true, reason: "free_commit_limit_exceeded", commits: commitPolicy.commits };
     }
 
     progressCommentId = await step.run("Post review in progress comment", async ()=>{

@@ -4,7 +4,7 @@ export const PLANS = {
     price: 0,
     reviewLimit: 20,
     repoLimit: 2,
-    features: ["20 reviews/month", "5 reviews per PR", "2 repositories", "Basic AI review", "Email support"],
+    features: ["20 reviews/month", "5 reviews per PR", "Max 3 commits per PR review", "2 repositories", "Basic AI review", "Email support"],
   },
   pro: {
     name: "Pro",

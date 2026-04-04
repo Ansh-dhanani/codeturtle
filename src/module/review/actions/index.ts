@@ -10,6 +10,8 @@ import { checkRateLimit } from "@/lib/rate-limiter";
 import { logger } from "@/lib/logger";
 import { Prisma } from "@prisma/client";
 
+const MAX_FREE_PLAN_PR_COMMITS = 3;
+
 export async function getReviews(params?: { repoFullName?: string; limit?: number }) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
@@ -75,6 +77,30 @@ export async function triggerReview(owner: string, repo: string, prNumber: numbe
 
   if (!repoRecord) {
     throw new Error("Repository not connected. Please connect it first.");
+  }
+
+  if (!specialLimitless) {
+    const subscription = await getSubscriptionStatus(userId);
+    if (subscription.plan === "free") {
+      const account = await prisma.account.findFirst({
+        where: { userId, providerId: "github" },
+        select: { accessToken: true },
+      });
+
+      if (!account?.accessToken) {
+        throw new Error("No GitHub access token found. Please reconnect your GitHub account.");
+      }
+
+      const { Octokit } = await import("octokit");
+      const octokit = new Octokit({ auth: account.accessToken });
+      const { data: pr } = await octokit.rest.pulls.get({ owner, repo, pull_number: prNumber });
+
+      if ((pr.commits || 0) > MAX_FREE_PLAN_PR_COMMITS) {
+        throw new Error(
+          `Free plan supports PR reviews for up to ${MAX_FREE_PLAN_PR_COMMITS} commits per PR. This PR has ${pr.commits} commits.`,
+        );
+      }
+    }
   }
 
   const review = await prisma.codeReview.create({
