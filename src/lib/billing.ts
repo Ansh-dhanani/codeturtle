@@ -2,9 +2,9 @@ export const PLANS = {
   free: {
     name: "Free",
     price: 0,
-    reviewLimit: 5,
+    reviewLimit: 20,
     repoLimit: 2,
-    features: ["5 reviews/month", "2 repositories", "Basic AI review", "Email support"],
+    features: ["20 reviews/month", "5 reviews per PR", "2 repositories", "Basic AI review", "Email support"],
   },
   pro: {
     name: "Pro",
@@ -38,6 +38,7 @@ export type SubscriptionStatus = {
   price: number;
   features: readonly string[];
   usage: { allowed: boolean; limit: number; used: number; remaining: number };
+  perPrUsage: { limit: number; used: number; remaining: number };
   currentPeriodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
   polarSubscriptionId: string | null;

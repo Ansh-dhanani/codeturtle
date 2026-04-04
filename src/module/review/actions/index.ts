@@ -5,7 +5,7 @@ import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { inngest } from "@/inngest/client";
 import { generateCodeReview } from "@/module/ai/lib/review";
-import { checkUsageLimit, incrementUsage, canConnectRepo, getSubscriptionStatus } from "@/lib/billing.server";
+import { checkUsageLimit, incrementUsage, canConnectRepo, getSubscriptionStatus, checkPerPRReviewLimit, isSpecialLimitlessUser } from "@/lib/billing.server";
 import { checkRateLimit } from "@/lib/rate-limiter";
 import { logger } from "@/lib/logger";
 import { Prisma } from "@prisma/client";
@@ -56,9 +56,17 @@ export async function triggerReview(owner: string, repo: string, prNumber: numbe
     throw new Error("Review limit reached. Upgrade your plan for more reviews.");
   }
 
-  const rateLimit = await checkRateLimit(userId, "free", "review");
-  if (!rateLimit.allowed) {
-    throw new Error("Rate limit exceeded. Please try again later.");
+  const perPrUsage = await checkPerPRReviewLimit({ userId, owner, repo, prNumber });
+  if (!perPrUsage.allowed) {
+    throw new Error(`Per-PR review limit reached for this month (${perPrUsage.used}/${perPrUsage.limit}).`);
+  }
+
+  const specialLimitless = await isSpecialLimitlessUser(userId);
+  if (!specialLimitless) {
+    const rateLimit = await checkRateLimit(userId, "free", "review");
+    if (!rateLimit.allowed) {
+      throw new Error("Rate limit exceeded. Please try again later.");
+    }
   }
 
   const repoRecord = await prisma.repository.findFirst({
@@ -90,8 +98,6 @@ export async function triggerReview(owner: string, repo: string, prNumber: numbe
       action: "review_requested",
     },
   });
-
-  await incrementUsage(userId);
 
   logger.info("Review triggered", { owner, repo, prNumber, userId });
 

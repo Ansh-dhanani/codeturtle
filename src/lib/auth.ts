@@ -2,6 +2,25 @@ import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { prisma } from "@/lib/prisma";
 
+function normalizeOrigin(value?: string | null) {
+  if (!value) return null;
+  return value.replace(/\/+$/, "");
+}
+
+const deploymentOrigin = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null;
+const authBaseURL =
+  normalizeOrigin(process.env.BETTER_AUTH_URL) ||
+  normalizeOrigin(process.env.NEXT_PUBLIC_APP_URL) ||
+  normalizeOrigin(deploymentOrigin) ||
+  "http://localhost:3000";
+
+const trustedOrigins = [
+  "http://localhost:3000",
+  normalizeOrigin(process.env.BETTER_AUTH_URL),
+  normalizeOrigin(process.env.NEXT_PUBLIC_APP_URL),
+  normalizeOrigin(deploymentOrigin),
+].filter((value, index, arr): value is string => Boolean(value) && arr.indexOf(value) === index);
+
 if (!process.env.GITHUB_CLIENT_ID || !process.env.GITHUB_CLIENT_SECRET) {
   throw new Error(
     "Missing required environment variables: GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET must be set"
@@ -11,17 +30,14 @@ if (!process.env.GITHUB_CLIENT_ID || !process.env.GITHUB_CLIENT_SECRET) {
 export { prisma };
 
 export const auth = betterAuth({
-  baseURL: (process.env.BETTER_AUTH_URL || "http://localhost:3000").replace(/\/+$/, ""),
-  trustedOrigins: [
-    "http://localhost:3000",
-    (process.env.BETTER_AUTH_URL || "").replace(/\/+$/, ""),
-  ].filter(Boolean),
+  baseURL: authBaseURL,
+  trustedOrigins,
   advanced: {
     cookies: {
       state: {
         attributes: {
           sameSite: "lax",
-          secure: true,
+          secure: process.env.NODE_ENV === "production",
         },
       },
     },

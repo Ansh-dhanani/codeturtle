@@ -58,28 +58,19 @@ Score guidelines:
 - 3-4: Needs significant improvements
 - 1-2: Major problems, rewrite needed`;
 
-async function getPRDiff(token: string, owner: string, repo: string, prNumber: number): Promise<string> {
-  const octokit = new Octokit({ auth: token });
-
-  const { data: pr } = await octokit.rest.pulls.get({
+async function getPRDiff(octokit: Octokit, owner: string, repo: string, prNumber: number): Promise<string> {
+  const response = await octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
     owner,
     repo,
     pull_number: prNumber,
+    headers: {
+      accept: "application/vnd.github.v3.diff",
+    },
   });
-
-  if (!pr.diff_url) {
-    throw new Error("No diff URL available for this PR");
-  }
-
-  const diffResponse = await fetch(pr.diff_url, {
-    headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.v3.diff" },
-  });
-  return await diffResponse.text();
+  return response.data as unknown as string;
 }
 
-async function getPRFiles(token: string, owner: string, repo: string, prNumber: number) {
-  const octokit = new Octokit({ auth: token });
-
+async function getPRFiles(octokit: Octokit, owner: string, repo: string, prNumber: number) {
   const { data: files } = await octokit.rest.pulls.listFiles({
     owner,
     repo,
@@ -108,21 +99,37 @@ export async function generateCodeReview(params: {
   const selectedModel = model || user?.aiModel || "gemini-2.5-flash";
   const userApiKey = user?.aiApiKey;
 
-  const account = await prisma.account.findFirst({
-    where: { userId, providerId: "github" },
-  });
-
-  if (!account?.accessToken) {
-    throw new Error("No GitHub access token found");
+  let octokit: Octokit | null = null;
+  try {
+    const { getInstallationOctokit } = await import("@/lib/github-app");
+    octokit = await getInstallationOctokit(owner, repo);
+    logger.info("Using GitHub App installation token for PR review", { owner, repo, prNumber });
+  } catch (err) {
+    logger.warn("GitHub App auth unavailable; falling back to user OAuth token", {
+      owner,
+      repo,
+      prNumber,
+      error: (err as Error).message,
+    });
   }
 
-  const token = account.accessToken;
+  if (!octokit) {
+    const account = await prisma.account.findFirst({
+      where: { userId, providerId: "github" },
+    });
+
+    if (!account?.accessToken) {
+      throw new Error("No usable GitHub credentials found (GitHub App or user OAuth token).");
+    }
+
+    octokit = new Octokit({ auth: account.accessToken });
+  }
 
   logger.info("Fetching PR data for review", { owner, repo, prNumber });
 
   const [diff, files] = await Promise.all([
-    getPRDiff(token, owner, repo, prNumber),
-    getPRFiles(token, owner, repo, prNumber),
+    getPRDiff(octokit, owner, repo, prNumber),
+    getPRFiles(octokit, owner, repo, prNumber),
   ]);
 
   const changedFiles = files
