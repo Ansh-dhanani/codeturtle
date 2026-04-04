@@ -1,23 +1,25 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { PrismaClient } from "@prisma/client";
-import { PrismaPg } from "@prisma/adapter-pg";
+import { prisma } from "@/lib/prisma";
 
-const adapter = new PrismaPg({
-  connectionString: process.env.DATABASE_URL,
-});
+function normalizeOrigin(value?: string | null) {
+  if (!value) return null;
+  return value.replace(/\/+$/, "");
+}
 
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
-};
+const deploymentOrigin = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null;
+const authBaseURL =
+  normalizeOrigin(process.env.BETTER_AUTH_URL) ||
+  normalizeOrigin(process.env.NEXT_PUBLIC_APP_URL) ||
+  normalizeOrigin(deploymentOrigin) ||
+  "http://localhost:3000";
 
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    adapter,
-  });
-
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+const trustedOrigins = [
+  "http://localhost:3000",
+  normalizeOrigin(process.env.BETTER_AUTH_URL),
+  normalizeOrigin(process.env.NEXT_PUBLIC_APP_URL),
+  normalizeOrigin(deploymentOrigin),
+].filter((value, index, arr): value is string => Boolean(value) && arr.indexOf(value) === index);
 
 if (!process.env.GITHUB_CLIENT_ID || !process.env.GITHUB_CLIENT_SECRET) {
   throw new Error(
@@ -25,12 +27,21 @@ if (!process.env.GITHUB_CLIENT_ID || !process.env.GITHUB_CLIENT_SECRET) {
   );
 }
 
+export { prisma };
+
 export const auth = betterAuth({
-  baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3000",
-  trustedOrigins: [
-    "http://localhost:3000",
-    process.env.BETTER_AUTH_URL || "",
-  ].filter(Boolean),
+  baseURL: authBaseURL,
+  trustedOrigins,
+  advanced: {
+    cookies: {
+      state: {
+        attributes: {
+          sameSite: "lax",
+          secure: process.env.NODE_ENV === "production",
+        },
+      },
+    },
+  },
   database: prismaAdapter(prisma, {
     provider: "postgresql",
   }),
@@ -38,13 +49,16 @@ export const auth = betterAuth({
     github: {
       clientId: process.env.GITHUB_CLIENT_ID,
       clientSecret: process.env.GITHUB_CLIENT_SECRET,
-      // Request repository and webhook administration scopes so the token can create/delete webhooks
-      // 'repo' grants full control of private repositories; 'admin:repo_hook' grants webhook admin rights
-      // Provide scopes as a string array (trim whitespace and ignore empty entries)
-      scope: (process.env.GITHUB_OAUTH_SCOPE || 'repo,admin:repo_hook,user:email')
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean),
+      scope: ["repo", "admin:repo_hook", "user:email"],
+      mapProfileToUser: async (profile) => {
+        const email = profile.email || `${profile.login}@users.noreply.github.com`;
+        return {
+          email,
+          name: profile.name || profile.login,
+          image: profile.avatar_url,
+          emailVerified: false,
+        };
+      },
     },
   },
 });

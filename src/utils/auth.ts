@@ -4,9 +4,13 @@ import { toast } from 'sonner'
 export const authenticateWithGithub = async () => {
   try {
     toast.loading('Signing in with GitHub...');
+    const callbackURL = typeof window !== 'undefined'
+      ? `${window.location.origin}/dashboard`
+      : '/dashboard';
+
     await authClient.signIn.social({
       provider: 'github',
-      callbackURL: '/dashboard',
+      callbackURL,
     });
     toast.success('Redirecting to GitHub...');
   } catch (error) {
