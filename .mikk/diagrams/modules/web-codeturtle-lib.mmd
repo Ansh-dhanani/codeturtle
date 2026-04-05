@@ -1,0 +1,64 @@
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "lineColor": "#64748b", "secondaryColor": "#334155", "tertiaryColor": "#475569", "background": "#0f172a", "mainBkg": "#1e293b", "nodeBorder": "#475569"}}}%%
+graph TD
+    subgraph mod_web_codeturtle_lib["📦 Module: Utils & Payments"]
+        subgraph file_c__users_ansh_desktop_web_codeturtle_src_lib_auth_utils_ts["📄 auth-utils.ts"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_lib_auth_utils_ts_getsession["λ getSession"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_lib_auth_utils_ts_isauthenticated["⚡ isAuthenticated"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_lib_auth_utils_ts_requireauth["⚡ requireAuth"]
+        end
+        subgraph file_c__users_ansh_desktop_web_codeturtle_src_lib_auth_ts["📄 auth.ts"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_lib_auth_ts_normalizeorigin["⚡ normalizeOrigin"]
+        end
+        subgraph file_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts["📄 billing.server.ts"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_getspeciallimitlessidentifiers["λ getSpecialLimitlessIdentifiers"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_normalizeidentifier["λ normalizeIdentifier"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_isspecialidentifiermatch["λ isSpecialIdentifierMatch"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_isspeciallimitlessuser["λ isSpecialLimitlessUser"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_getnextmonthresetdate["λ getNextMonthResetDate"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_getcurrentmonthrange["λ getCurrentMonthRange"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_getorcreatesubscription["λ getOrCreateSubscription"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_checkusagelimit["λ checkUsageLimit"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_incrementusage["λ incrementUsage"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_checkperprreviewlimit["λ checkPerPRReviewLimit"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_getperprusagesnapshot["λ getPerPRUsageSnapshot"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_canconnectrepo["λ canConnectRepo"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_getsubscriptionstatus["λ getSubscriptionStatus"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_handlepolarsubscriptionevent["⚡ handlePolarSubscriptionEvent"]
+        end
+        subgraph file_c__users_ansh_desktop_web_codeturtle_src_lib_utils_ts["📄 utils.ts"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_lib_utils_ts_cn["⚡ cn"]
+        end
+        subgraph file_c__users_ansh_desktop_web_codeturtle_src_lib_validation_ts["📄 validation.ts"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_lib_validation_ts_validatefield["λ validateField"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_lib_validation_ts_validatedata["λ validateData"]
+        end
+        subgraph file_c__users_ansh_desktop_web_codeturtle_src_lib_view_transition_ts["📄 view-transition.ts"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_lib_view_transition_ts_startviewtransition["⚡ startViewTransition"]
+        end
+    end
+
+    fn_c__users_ansh_desktop_web_codeturtle_src_lib_auth_utils_ts_isauthenticated --> fn_c__users_ansh_desktop_web_codeturtle_src_lib_auth_utils_ts_getsession
+    fn_c__users_ansh_desktop_web_codeturtle_src_lib_auth_utils_ts_requireauth --> fn_c__users_ansh_desktop_web_codeturtle_src_lib_auth_utils_ts_getsession
+    fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_isspecialidentifiermatch --> fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_normalizeidentifier
+    fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_isspeciallimitlessuser --> fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_getspeciallimitlessidentifiers
+    fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_isspeciallimitlessuser --> fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_isspecialidentifiermatch
+    fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_getorcreatesubscription --> fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_getnextmonthresetdate
+    fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_checkusagelimit --> fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_isspeciallimitlessuser
+    fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_checkusagelimit --> fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_getorcreatesubscription
+    fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_checkusagelimit --> fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_getnextmonthresetdate
+    fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_checkperprreviewlimit --> fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_isspeciallimitlessuser
+    fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_checkperprreviewlimit --> fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_getorcreatesubscription
+    fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_checkperprreviewlimit --> fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_getcurrentmonthrange
+    fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_getperprusagesnapshot --> fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_isspeciallimitlessuser
+    fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_getperprusagesnapshot --> fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_getorcreatesubscription
+    fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_canconnectrepo --> fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_isspeciallimitlessuser
+    fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_canconnectrepo --> fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_getorcreatesubscription
+    fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_getsubscriptionstatus --> fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_isspeciallimitlessuser
+    fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_getsubscriptionstatus --> fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_getorcreatesubscription
+    fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_getsubscriptionstatus --> fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_checkusagelimit
+    fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_getsubscriptionstatus --> fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_getperprusagesnapshot
+    fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_handlepolarsubscriptionevent --> fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_getnextmonthresetdate
+    fn_c__users_ansh_desktop_web_codeturtle_src_lib_validation_ts_validatedata --> fn_c__users_ansh_desktop_web_codeturtle_src_lib_validation_ts_validatefield
+
+    classDef default fill:#334155,stroke:#64748b,color:#e2e8f0,stroke-width:1px
+    classDef external fill:#1e293b,stroke:#475569,color:#94a3b8,stroke-dasharray: 5 5

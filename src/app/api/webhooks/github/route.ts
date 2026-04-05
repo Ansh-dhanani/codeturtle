@@ -30,7 +30,9 @@ export async function POST(req: Request) {
     repository?: { full_name?: string; owner?: { login?: string }; name?: string };
     action?: string;
     pull_request?: { number: number; title?: string; user?: { login?: string } };
-    sender?: { login?: string };
+    issue?: { number?: number; pull_request?: { url?: string } };
+    comment?: { id?: number; body?: string };
+    sender?: { login?: string; type?: string };
     [key: string]: unknown;
   };
   let parsedBody: ParsedBody | null;
@@ -65,22 +67,31 @@ export async function POST(req: Request) {
     l.error('Error looking up repository for webhook', err as Error, { delivery });
   }
 
-  const secret = repoRecord?.hookSecret ?? process.env.GITHUB_WEBHOOK_SECRET;
+  const candidateSecrets = [repoRecord?.hookSecret, process.env.GITHUB_WEBHOOK_SECRET]
+    .filter((value, index, arr): value is string => Boolean(value) && arr.indexOf(value) === index);
 
-  if (secret && repoRecord) {
-    const computed256 = 'sha256=' + crypto.createHmac('sha256', secret).update(payload).digest('hex');
-    const computed1 = 'sha1=' + crypto.createHmac('sha1', secret).update(payload).digest('hex');
+  if (repoRecord && candidateSecrets.length > 0) {
+    let signatureValid = false;
 
-    const valid256 = sig256 ? timingSafeCompare(sig256, computed256) : false;
-    const valid1 = sig1 ? timingSafeCompare(sig1, computed1) : false;
+    for (const secret of candidateSecrets) {
+      const computed256 = 'sha256=' + crypto.createHmac('sha256', secret).update(payload).digest('hex');
+      const computed1 = 'sha1=' + crypto.createHmac('sha1', secret).update(payload).digest('hex');
+      const valid256 = sig256 ? timingSafeCompare(sig256, computed256) : false;
+      const valid1 = sig1 ? timingSafeCompare(sig1, computed1) : false;
 
-    if (!valid256 && !valid1) {
+      if (valid256 || valid1) {
+        signatureValid = true;
+        break;
+      }
+    }
+
+    if (!signatureValid) {
       l.warn('Invalid webhook signature', { delivery });
       return new Response('Invalid signature', { status: 401 });
     }
   } else if (!repoRecord) {
     l.warn('Repo not found in DB, skipping signature verification', { delivery, hookId: parsedBody?.hook_id, fullName: parsedBody?.repository?.full_name });
-  } else {
+  } else if (candidateSecrets.length === 0) {
     l.warn('No webhook secret found', { delivery });
   }
 
@@ -131,6 +142,98 @@ export async function POST(req: Request) {
       }
     } catch (err) {
       l.error('Error handling pull_request event', err as Error, { delivery });
+    }
+  }
+
+  if (event === 'issue_comment') {
+    try {
+      const action = parsedBody?.action;
+      const owner = parsedBody?.repository?.owner?.login || repoRecord?.owner;
+      const repo = parsedBody?.repository?.name || repoRecord?.name;
+      const prNumber = parsedBody?.issue?.number;
+      const userId = repoRecord?.userId;
+      const commentId = parsedBody?.comment?.id;
+      const commentBody = parsedBody?.comment?.body || "";
+      const senderLogin = parsedBody?.sender?.login || "";
+      const senderType = (parsedBody?.sender?.type || "").toLowerCase();
+      const isPRComment = Boolean(parsedBody?.issue?.pull_request);
+      const hasMention = /(^|\s)@(?:codeturtle|codeturtle-bot(?:\[bot\])?)(?=\s|$|[.,!?])/i.test(commentBody);
+      const isBotSender = senderType === "bot" || /codeturtle/i.test(senderLogin);
+
+      l.info('Received issue_comment event', {
+        action,
+        owner,
+        repo,
+        prNumber,
+        commentId,
+        senderLogin,
+        isPRComment,
+        hasMention,
+        delivery,
+      });
+
+      if (action === "created" && owner && repo && prNumber && userId && commentId && isPRComment && hasMention && !isBotSender) {
+        await inngest.send({
+          name: "pull_request.mention",
+          data: {
+            owner,
+            repo,
+            prNumber,
+            userId,
+            commentId,
+            commentBody,
+            senderLogin,
+          },
+        });
+        l.info("Enqueued @codeturtle mention response", { owner, repo, prNumber, commentId });
+      }
+    } catch (err) {
+      l.error("Error handling issue_comment event", err as Error, { delivery });
+    }
+  }
+
+  if (event === "pull_request_review_comment") {
+    try {
+      const action = parsedBody?.action;
+      const owner = parsedBody?.repository?.owner?.login || repoRecord?.owner;
+      const repo = parsedBody?.repository?.name || repoRecord?.name;
+      const prNumber = parsedBody?.pull_request?.number;
+      const userId = repoRecord?.userId;
+      const commentId = parsedBody?.comment?.id;
+      const commentBody = parsedBody?.comment?.body || "";
+      const senderLogin = parsedBody?.sender?.login || "";
+      const senderType = (parsedBody?.sender?.type || "").toLowerCase();
+      const hasMention = /(^|\s)@(?:codeturtle|codeturtle-bot(?:\[bot\])?)(?=\s|$|[.,!?])/i.test(commentBody);
+      const isBotSender = senderType === "bot" || /codeturtle/i.test(senderLogin);
+
+      l.info("Received pull_request_review_comment event", {
+        action,
+        owner,
+        repo,
+        prNumber,
+        commentId,
+        senderLogin,
+        hasMention,
+        delivery,
+      });
+
+      if (action === "created" && owner && repo && prNumber && userId && commentId && hasMention && !isBotSender) {
+        await inngest.send({
+          name: "pull_request.mention",
+          data: {
+            owner,
+            repo,
+            prNumber,
+            userId,
+            commentId,
+            commentBody,
+            senderLogin,
+          },
+        });
+        l.info("Enqueued @codeturtle mention response from review comment", { owner, repo, prNumber, commentId });
+      }
+    } catch (err) {
+      l.error("Error handling pull_request_review_comment event", err as Error, { delivery });
     }
   }
 

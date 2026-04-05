@@ -82,10 +82,14 @@ export async function updateUserAIModel(provider: string, model: string, apiKey?
       throw new Error("User not authenticated");
     }
 
-    const normalizedModel =
-      provider === "openrouter" && model === "moonshotai/kimi-k2:free"
-        ? "moonshotai/kimi-k2"
-        : model;
+    let normalizedModel = model;
+    if (provider === "openrouter") {
+      if (model === "moonshotai/kimi-k2:free") {
+        normalizedModel = "moonshotai/kimi-k2";
+      } else if (model === "qwen/qwen3-32b:free") {
+        normalizedModel = "qwen/qwen3.6-plus:free";
+      }
+    }
 
     const providerConfig = AI_PROVIDERS.find((p) => p.id === provider);
     const modelConfig = providerConfig?.models.find((m) => m.id === normalizedModel);

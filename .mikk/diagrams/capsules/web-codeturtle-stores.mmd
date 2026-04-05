@@ -1,0 +1,28 @@
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "lineColor": "#64748b", "secondaryColor": "#334155", "tertiaryColor": "#475569", "background": "#0f172a", "mainBkg": "#1e293b", "nodeBorder": "#475569"}}}%%
+graph LR
+
+    subgraph web_codeturtle_stores["📦 Providers & Authentication"]
+        direction TB
+        subgraph internal["🔒 Internal"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_stores_github_store_ts_usegithubaccount["useGithubAccount"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_stores_github_store_ts_usegithubuser["useGithubUser"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_stores_github_store_ts_usegithubrepos["useGithubRepos"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_stores_github_store_ts_usegithubrepo["useGithubRepo"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_stores_github_store_ts_uselinkgithubaccount["useLinkGithubAccount"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_stores_github_store_ts_useunlinkgithubaccount["useUnlinkGithubAccount"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_stores_github_store_ts_usesyncgithubrepos["useSyncGithubRepos"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_stores_github_store_ts_usegithubauthurl["useGithubAuthUrl"]
+        end
+    end
+
+
+    classDef publicApi fill:#22c55e,stroke:#4ade80,color:#f0fdf4
+    classDef internalApi fill:#64748b,stroke:#94a3b8,color:#f1f5f9
+    class fn_c__users_ansh_desktop_web_codeturtle_src_stores_github_store_ts_usegithubaccount internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_stores_github_store_ts_usegithubuser internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_stores_github_store_ts_usegithubrepos internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_stores_github_store_ts_usegithubrepo internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_stores_github_store_ts_uselinkgithubaccount internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_stores_github_store_ts_useunlinkgithubaccount internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_stores_github_store_ts_usesyncgithubrepos internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_stores_github_store_ts_usegithubauthurl internalApi

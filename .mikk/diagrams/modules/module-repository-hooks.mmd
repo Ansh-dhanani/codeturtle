@@ -1,0 +1,15 @@
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "lineColor": "#64748b", "secondaryColor": "#334155", "tertiaryColor": "#475569", "background": "#0f172a", "mainBkg": "#1e293b", "nodeBorder": "#475569"}}}%%
+graph TD
+    subgraph mod_module_repository_hooks["📦 Module: Database"]
+        subgraph file_c__users_ansh_desktop_web_codeturtle_src_module_repository_hooks_use_connect_repositorys_ts["📄 use-connect-repositorys.ts"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_repository_hooks_use_connect_repositorys_ts_useconnectrepository["⚡ useConnectRepository"]
+        end
+        subgraph file_c__users_ansh_desktop_web_codeturtle_src_module_repository_hooks_use_repositories_ts["📄 use-repositories.ts"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_repository_hooks_use_repositories_ts_userepositories["⚡ useRepositories"]
+        end
+    end
+
+    fn_c__users_ansh_desktop_web_codeturtle_src_module_repository_hooks_use_repositories_ts_userepositories -.->|"calls"| ext_fn_c__users_ansh_desktop_web_codeturtle_src_module_repository_actions_index_ts_fetchuserrepositories["🔗 fetchUserRepositories<br/>(module-repository-actions)"]
+
+    classDef default fill:#334155,stroke:#64748b,color:#e2e8f0,stroke-width:1px
+    classDef external fill:#1e293b,stroke:#475569,color:#94a3b8,stroke-dasharray: 5 5

@@ -1,0 +1,14 @@
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "lineColor": "#64748b", "secondaryColor": "#334155", "tertiaryColor": "#475569", "background": "#0f172a", "mainBkg": "#1e293b", "nodeBorder": "#475569"}}}%%
+graph LR
+
+    subgraph app_api_user["📦 API"]
+        direction TB
+        subgraph internal["🔒 Internal"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_app_api_user_route_ts_get["GET"]
+        end
+    end
+
+
+    classDef publicApi fill:#22c55e,stroke:#4ade80,color:#f0fdf4
+    classDef internalApi fill:#64748b,stroke:#94a3b8,color:#f1f5f9
+    class fn_c__users_ansh_desktop_web_codeturtle_src_app_api_user_route_ts_get internalApi

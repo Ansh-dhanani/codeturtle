@@ -1,0 +1,32 @@
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "lineColor": "#64748b", "secondaryColor": "#334155", "tertiaryColor": "#475569", "background": "#0f172a", "mainBkg": "#1e293b", "nodeBorder": "#475569"}}}%%
+graph LR
+
+    subgraph codeturtle_module_github["📦 Hooks & Authentication"]
+        direction TB
+        subgraph public["🔓 Public API"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_github_github_ts_getgithubtoken["getGithubToken"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_github_github_ts_fetchusercontribution["fetchUserContribution"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_github_github_ts_getrepositories["getRepositories"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_github_github_ts_createwebhook["createWebhook"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_github_github_ts_deletewebhook["deleteWebhook"]
+        end
+    end
+
+    ext_fn_c__users_ansh_desktop_web_codeturtle_src_module_dashboard_actions_index_ts_getcontributiongraph["getContributionGraph<br/>(module-dashboard-actions)"] --> fn_c__users_ansh_desktop_web_codeturtle_src_module_github_github_ts_getgithubtoken
+    ext_fn_c__users_ansh_desktop_web_codeturtle_src_module_dashboard_actions_index_ts_getdashboardstats["getDashboardStats<br/>(module-dashboard-actions)"] --> fn_c__users_ansh_desktop_web_codeturtle_src_module_github_github_ts_getgithubtoken
+    ext_fn_c__users_ansh_desktop_web_codeturtle_src_module_dashboard_actions_index_ts_getmonthlyactivity["getMonthlyActivity<br/>(module-dashboard-actions)"] --> fn_c__users_ansh_desktop_web_codeturtle_src_module_github_github_ts_getgithubtoken
+    ext_fn_c__users_ansh_desktop_web_codeturtle_src_module_dashboard_actions_index_ts_getcontributiongraph["getContributionGraph<br/>(module-dashboard-actions)"] --> fn_c__users_ansh_desktop_web_codeturtle_src_module_github_github_ts_fetchusercontribution
+    ext_fn_c__users_ansh_desktop_web_codeturtle_src_module_dashboard_actions_index_ts_getdashboardstats["getDashboardStats<br/>(module-dashboard-actions)"] --> fn_c__users_ansh_desktop_web_codeturtle_src_module_github_github_ts_fetchusercontribution
+    ext_fn_c__users_ansh_desktop_web_codeturtle_src_module_dashboard_actions_index_ts_getmonthlyactivity["getMonthlyActivity<br/>(module-dashboard-actions)"] --> fn_c__users_ansh_desktop_web_codeturtle_src_module_github_github_ts_fetchusercontribution
+    ext_fn_c__users_ansh_desktop_web_codeturtle_src_module_repository_actions_index_ts_fetchuserrepositories["fetchUserRepositories<br/>(module-repository-actions)"] --> fn_c__users_ansh_desktop_web_codeturtle_src_module_github_github_ts_getrepositories
+    ext_fn_c__users_ansh_desktop_web_codeturtle_src_module_repository_actions_index_ts_connectrepository["connectRepository<br/>(module-repository-actions)"] --> fn_c__users_ansh_desktop_web_codeturtle_src_module_github_github_ts_createwebhook
+    ext_fn_c__users_ansh_desktop_web_codeturtle_src_module_settings_actions_index_ts_disconnectrepository["disconnectRepository<br/>(module-settings-actions)"] --> fn_c__users_ansh_desktop_web_codeturtle_src_module_github_github_ts_deletewebhook
+    ext_fn_c__users_ansh_desktop_web_codeturtle_src_module_settings_actions_index_ts_disconnectallrepository["disconnectAllRepository<br/>(module-settings-actions)"] --> fn_c__users_ansh_desktop_web_codeturtle_src_module_github_github_ts_deletewebhook
+
+    classDef publicApi fill:#22c55e,stroke:#4ade80,color:#f0fdf4
+    classDef internalApi fill:#64748b,stroke:#94a3b8,color:#f1f5f9
+    class fn_c__users_ansh_desktop_web_codeturtle_src_module_github_github_ts_getgithubtoken publicApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_module_github_github_ts_fetchusercontribution publicApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_module_github_github_ts_getrepositories publicApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_module_github_github_ts_createwebhook publicApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_module_github_github_ts_deletewebhook publicApi

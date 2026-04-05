@@ -4,6 +4,20 @@ import prisma from "@/lib/prisma";
 import { headers } from "next/headers.js";
 import crypto from "crypto";
 
+function isGithubBadCredentialError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const status = (error as { status?: number }).status;
+  const message = ((error as { message?: string }).message || "").toLowerCase();
+  return status === 401 || message.includes("bad credentials");
+}
+
+function toGithubUserFacingError(error: unknown, fallbackMessage: string): Error {
+  if (isGithubBadCredentialError(error)) {
+    return new Error("GitHub authentication expired. Please reconnect your GitHub account and try again.");
+  }
+  return new Error(fallbackMessage);
+}
+
 export const getGithubToken = async () => {
   const session = await auth.api.getSession({
     headers: await headers(),
@@ -82,14 +96,19 @@ export const getRepositories = async (page: number = 1, perPage: number = 10) =>
   const octokit = new Octokit({
     auth: token,
   });
-  const { data } = await octokit.rest.repos.listForAuthenticatedUser({
-    visibility: "all",
-    affiliation: "owner",
-    per_page: perPage,
-    page,
-    sort: "updated",
-  });
-  return data;
+  try {
+    const { data } = await octokit.rest.repos.listForAuthenticatedUser({
+      visibility: "all",
+      affiliation: "owner",
+      per_page: perPage,
+      page,
+      sort: "updated",
+    });
+    return data;
+  } catch (error) {
+    console.error("Error listing repositories:", error);
+    throw toGithubUserFacingError(error, "Failed to fetch repositories from GitHub.");
+  }
 }
 
 export const createWebhook = async (owner: string, repo: string) => {
@@ -134,10 +153,13 @@ export const createWebhook = async (owner: string, repo: string) => {
     const response = await octokit.rest.repos.listWebhooks({ owner, repo });
     hooks = response.data;
   } catch (error: any) {
+    if (isGithubBadCredentialError(error)) {
+      throw new Error("GitHub authentication expired. Please reconnect your GitHub account and try again.");
+    }
     if (error?.status === 404 || error?.status === 403) {
       throw new Error("Webhook permission denied. Reconnect GitHub and grant repository + webhook permissions, then retry.");
     }
-    throw error;
+    throw new Error("Failed to read repository webhooks from GitHub.");
   }
 
   const existingHook = hooks.find((hook) => hook.config.url === webhookUrl);
@@ -159,13 +181,16 @@ export const createWebhook = async (owner: string, repo: string) => {
     });
     return { ...response.data, secret };
   } catch (error: any) {
+    if (isGithubBadCredentialError(error)) {
+      throw new Error("GitHub authentication expired. Please reconnect your GitHub account and try again.");
+    }
     if (error?.status === 404 || error?.status === 403) {
       throw new Error("Webhook permission denied. Reconnect GitHub and grant repository + webhook permissions, then retry.");
     }
     if (error?.status === 422) {
       throw new Error("GitHub rejected webhook creation (422). Remove duplicate hooks if needed and retry.");
     }
-    throw error;
+    throw new Error("Failed to create webhook on GitHub.");
   }
 }
 
@@ -191,7 +216,7 @@ export const deleteWebhook = async (owner: string, repo: string, hookId: number)
     return false;
   } catch (error) {
     console.error("Error deleting webhook:", error);
-    throw error;
+    throw toGithubUserFacingError(error, "Failed to delete GitHub webhook.");
   }
 }
 
@@ -203,11 +228,18 @@ export async function getRepoFileContents(
 ): Promise<{ path: string; content: string }[]> {
   const octokit = new Octokit({ auth: token });
 
-  const { data } = await octokit.rest.repos.getContent({
-    repo,
-    owner,
-    path,
-  });
+  let data;
+  try {
+    const response = await octokit.rest.repos.getContent({
+      repo,
+      owner,
+      path,
+    });
+    data = response.data;
+  } catch (error) {
+    console.error("Error fetching repository content:", error);
+    throw toGithubUserFacingError(error, "Failed to fetch repository contents from GitHub.");
+  }
 
   if (!Array.isArray(data)) {
     if (data.type === "file" && data.content) {

@@ -1,0 +1,28 @@
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "lineColor": "#64748b", "secondaryColor": "#334155", "tertiaryColor": "#475569", "background": "#0f172a", "mainBkg": "#1e293b", "nodeBorder": "#475569"}}}%%
+graph LR
+
+    subgraph module_review_actions["📦 Authentication & Storage"]
+        direction TB
+        subgraph internal["🔒 Internal"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_getreviews["getReviews"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_getreviewbyid["getReviewById"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_triggerreview["triggerReview"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_triggerfilereview["triggerFileReview"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_getusersubscription["getUserSubscription"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_checkcanconnectrepo["checkCanConnectRepo"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_deletereview["deleteReview"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_generatefixpr["generateFixPR"]
+        end
+    end
+
+
+    classDef publicApi fill:#22c55e,stroke:#4ade80,color:#f0fdf4
+    classDef internalApi fill:#64748b,stroke:#94a3b8,color:#f1f5f9
+    class fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_getreviews internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_getreviewbyid internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_triggerreview internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_triggerfilereview internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_getusersubscription internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_checkcanconnectrepo internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_deletereview internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_generatefixpr internalApi

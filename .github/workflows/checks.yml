@@ -50,17 +50,17 @@ jobs:
         run: bun install
 
       - name: Lint
-        run: bun run lint --if-present
+        run: bun run --if-present lint
 
       - name: Type check
-        run: bun run typecheck --if-present
+        run: bun run --if-present typecheck
 
       - name: Run tests
-        run: bun run test --if-present
+        run: bun run --if-present test
 
       - id: build-step
         name: Build
-        run: bun run build --if-present
+        run: bun run --if-present build
 
       - name: Notify success
         if: success()

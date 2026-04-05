@@ -1,0 +1,23 @@
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "lineColor": "#64748b", "secondaryColor": "#334155", "tertiaryColor": "#475569", "background": "#0f172a", "mainBkg": "#1e293b", "nodeBorder": "#475569"}}}%%
+graph LR
+
+    subgraph module_ai_lib["📦 Storage & Providers"]
+        direction TB
+        subgraph public["🔓 Public API"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_ai_lib_review_ts_generatecodereview["generateCodeReview"]
+        end
+        subgraph internal["🔒 Internal"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_ai_lib_review_ts_getprdiff["getPRDiff"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_ai_lib_review_ts_getprfiles["getPRFiles"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_ai_lib_review_ts_generatefilereview["generateFileReview"]
+        end
+    end
+
+    ext_fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_triggerfilereview["triggerFileReview<br/>(module-review-actions)"] --> fn_c__users_ansh_desktop_web_codeturtle_src_module_ai_lib_review_ts_generatecodereview
+
+    classDef publicApi fill:#22c55e,stroke:#4ade80,color:#f0fdf4
+    classDef internalApi fill:#64748b,stroke:#94a3b8,color:#f1f5f9
+    class fn_c__users_ansh_desktop_web_codeturtle_src_module_ai_lib_review_ts_generatecodereview publicApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_module_ai_lib_review_ts_getprdiff internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_module_ai_lib_review_ts_getprfiles internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_module_ai_lib_review_ts_generatefilereview internalApi

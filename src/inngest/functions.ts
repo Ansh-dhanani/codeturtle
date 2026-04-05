@@ -1,6 +1,8 @@
 
 import { prisma } from "@/lib/prisma";
 import { inngest } from "./client";
+import { generateText } from "ai";
+import { google } from "@ai-sdk/google";
 import { z } from "zod";
 import { getRepoFileContents } from "@/module/github/github";
 import { indexCodebase, deleteRepoVectors } from "@/module/ai/lib/rag";
@@ -8,6 +10,7 @@ import { createLogger } from "@/lib/logger";
 import { Prisma } from "@prisma/client";
 import { Octokit } from "octokit";
 import { checkPerPRReviewLimit, checkUsageLimit, incrementUsage, isSpecialLimitlessUser } from "@/lib/billing.server";
+import { getFailureHumorScenario, getHumorLines, getSuccessHumorScenario } from "@/lib/review-humor";
 
 const l = createLogger("inngest-functions");
 const MAX_FREE_PLAN_PR_COMMITS = 3;
@@ -201,6 +204,7 @@ async ({ event, step }) => {
                     `Usage this month: ${usage.used}/${usage.limit}`,
                     "",
                     "Please upgrade your plan or wait until your monthly quota resets.",
+                    ...(await getHumorLines("quota-limit", { used: usage.used, limit: usage.limit })),
                 ].join("\n"),
             });
         });
@@ -226,6 +230,7 @@ async ({ event, step }) => {
                     `This PR usage this month: ${perPrUsage.used}/${perPrUsage.limit}`,
                     "",
                     "Free plan allows up to 5 automated reviews per PR each month.",
+                    ...(await getHumorLines("quota-limit", { used: perPrUsage.used, limit: perPrUsage.limit })),
                 ].join("\n"),
             });
         });
@@ -269,6 +274,7 @@ async ({ event, step }) => {
                     "Please split this PR into smaller changes or upgrade your plan to continue.",
                     "",
                     "Review was not generated for this PR.",
+                    ...(await getHumorLines("quota-limit")),
                 ].join("\n"),
             });
         });
@@ -298,6 +304,7 @@ async ({ event, step }) => {
                 "Review in progress...",
                 "",
                 "Please wait while I analyze the changes.",
+                ...(await getHumorLines("in-progress")),
             ].join("\n"),
         });
         l.info("Posted review in progress comment", { owner, repo, prNumber, commentId: comment.id });
@@ -358,6 +365,11 @@ async ({ event, step }) => {
         }
 
         const reviewEvent = review.overallScore < 5 ? "REQUEST_CHANGES" : "COMMENT";
+        const successScenario = getSuccessHumorScenario(review.overallScore, review.issues.length);
+        const successHumorLines = await getHumorLines(successScenario, {
+            score: review.overallScore,
+            issuesCount: review.issues.length,
+        });
 
         const prBody = [
             `## CodeTurtle AI Review — Score: ${review.overallScore}/10`,
@@ -365,6 +377,7 @@ async ({ event, step }) => {
             `Reviewer model: ${review.reviewerProvider}/${review.reviewerModel}`,
             "",
             review.summary,
+            ...successHumorLines,
             "",
             review.issues.length > 0 ? `### Issues Found (${review.issues.length})\n${review.issues.map((i) => `- **${i.title}** in \`${i.file}\` (${i.severity})`).join("\n")}` : "",
             "",
@@ -376,15 +389,46 @@ async ({ event, step }) => {
         ].filter(Boolean).join("\n");
 
         if (reviewComments.length > 0) {
-            await octokit.rest.pulls.createReview({
-                owner,
-                repo,
-                pull_number: prNumber,
-                body: prBody,
-                event: reviewEvent,
-                comments: reviewComments,
-            });
-            l.info("PR review posted to GitHub", { owner, repo, prNumber, comments: reviewComments.length, event: reviewEvent });
+            try {
+                await octokit.rest.pulls.createReview({
+                    owner,
+                    repo,
+                    pull_number: prNumber,
+                    body: prBody,
+                    event: reviewEvent,
+                    comments: reviewComments,
+                });
+                l.info("PR review posted to GitHub", { owner, repo, prNumber, comments: reviewComments.length, event: reviewEvent });
+            } catch (reviewErr) {
+                const reviewErrorMessage = reviewErr instanceof Error ? reviewErr.message : "Unknown error";
+                const reviewErrorStatus = (reviewErr as { status?: number } | undefined)?.status;
+                const lineResolutionError =
+                    reviewErrorStatus === 422 && /line could not be resolved|unprocessable entity/i.test(reviewErrorMessage);
+
+                if (!lineResolutionError) {
+                    throw reviewErr;
+                }
+
+                l.warn("Inline review comments could not be resolved; posting summary review only", {
+                    owner,
+                    repo,
+                    prNumber,
+                    commentsAttempted: reviewComments.length,
+                    error: reviewErrorMessage,
+                });
+
+                await octokit.rest.pulls.createReview({
+                    owner,
+                    repo,
+                    pull_number: prNumber,
+                    body: [
+                        prBody,
+                        "",
+                        "_Note: Inline comments were skipped because GitHub could not resolve one or more line positions in the current PR diff._",
+                    ].join("\n"),
+                    event: reviewEvent,
+                });
+            }
         } else {
             await octokit.rest.issues.createComment({
                 owner,
@@ -404,6 +448,7 @@ async ({ event, step }) => {
                     "## CodeTurtle AI Review",
                     "",
                     `Review complete using ${review.reviewerProvider}/${review.reviewerModel}. See the review above for details.`,
+                    ...successHumorLines,
                 ].join("\n"),
             });
             l.info("Updated progress comment to complete", { owner, repo, prNumber, commentId: progressCommentId });
@@ -456,12 +501,14 @@ async ({ event, step }) => {
                     : /provider returned error|ai_apicallerror/i.test(errorMessage)
                     ? "Likely cause: provider-side model routing failure. Please switch model in settings (recommended: openrouter/auto) and retry."
                     : "Please retry in a few minutes. If this keeps happening, contact support with this PR link.";
+                const failureHumorLines = await getHumorLines(getFailureHumorScenario(errorMessage));
                 const body = [
                     "## CodeTurtle AI Review",
                     "",
                     "Sorry, I could not complete this automated review.",
                     `Configured reviewer model: ${configuredProvider}/${configuredModel}`,
                     helpText,
+                    ...failureHumorLines,
                 ].join("\n");
 
                 if (progressCommentId) {
@@ -503,4 +550,91 @@ export const testFunction = inngest.createFunction(
   async ({ event, step }) => {
     console.log("Test function executed with event data:", event.data);
   }
+);
+
+export const processPRMention = inngest.createFunction(
+  { id: "process-pr-mention", retries: 1 },
+  { event: "pull_request.mention" },
+  async ({ event, step }) => {
+    const { owner, repo, prNumber, userId, commentId, commentBody, senderLogin } = event.data as {
+      owner: string;
+      repo: string;
+      prNumber: number;
+      userId: string;
+      commentId: number;
+      commentBody: string;
+      senderLogin: string;
+    };
+
+    await step.run("Reply to @codeturtle mention", async () => {
+      const octokit = await getPreferredOctokit(owner, repo, userId);
+      const cleanedPrompt = commentBody
+        .replace(/@(?:codeturtle|codeturtle-bot(?:\[bot\])?)(?=\s|$|[.,!?])/gi, "")
+        .trim();
+
+      const userPrompt =
+        cleanedPrompt.length > 0
+          ? cleanedPrompt
+          : "User mentioned @codeturtle without additional text. Ask what they need help with.";
+
+      const mentionTone = /thanks|thank you|love|great|awesome|nice|helpful/i.test(userPrompt)
+        ? "positive"
+        : /lol|lmao|haha|funny|joke/i.test(userPrompt)
+        ? "funny"
+        : /stupid|idiot|useless|bad bot|hate|worst|shit|sucks|dont like|don't like/i.test(userPrompt)
+        ? "frustrated"
+        : "neutral";
+
+      const fallbackResponseByTone: Record<string, string> = {
+        positive: "Appreciate you. If you want, I can re-check specific files before you merge.",
+        funny: "Fair one. Drop the exact file or comment thread and I will focus there.",
+        frustrated: "Fair feedback. Tell me the top 1-2 points you disagree with and I will re-check those first.",
+        neutral: "Got you. Share what part you want me to focus on and I will help directly.",
+      };
+
+      let responseText = "";
+      try {
+        const { text } = await generateText({
+          model: google("gemini-2.5-flash"),
+          system:
+            `You are CodeTurtle, an AI PR assistant. Match this tone: ${mentionTone}. Keep it casual, short (2-4 lines), and actionable. Avoid corporate wording.`,
+          prompt: `Repository: ${owner}/${repo}\nPR: #${prNumber}\nUser message: ${userPrompt}`,
+          temperature: 0.4,
+          maxOutputTokens: 300,
+        });
+        responseText = text.trim();
+      } catch (err) {
+        l.warn("Mention response generation failed; using fallback", {
+          owner,
+          repo,
+          prNumber,
+          commentId,
+          error: err instanceof Error ? err.message : "Unknown error",
+        });
+      }
+
+      const mentionScenario = mentionTone === "positive"
+        ? "success-clean"
+        : mentionTone === "frustrated"
+        ? "success-critical"
+        : "success-warning";
+      const humorLines = await getHumorLines(mentionScenario);
+
+      const body = [
+        "## CodeTurtle Reply",
+        "",
+        responseText || fallbackResponseByTone[mentionTone],
+        ...humorLines,
+      ].join("\n");
+
+      await octokit.rest.issues.createComment({
+        owner,
+        repo,
+        issue_number: prNumber,
+        body,
+      });
+
+      l.info("Posted @codeturtle mention reply", { owner, repo, prNumber, commentId, senderLogin });
+    });
+  },
 );

@@ -1,0 +1,128 @@
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "lineColor": "#64748b", "secondaryColor": "#334155", "tertiaryColor": "#475569", "background": "#0f172a", "mainBkg": "#1e293b", "nodeBorder": "#475569"}}}%%
+graph TD
+
+    web_codeturtle_lib["📦 Utils & Payments<br/>10 files, 22 functions"]
+    generated_client_internal["📦 Forms & Database<br/>3 files, 2 functions"]
+    module_ai_lib["📦 Storage & Providers<br/>1 files, 4 functions"]
+    codeturtle_module_github["📦 Hooks & Authentication<br/>1 files, 5 functions"]
+    web_codeturtle_prisma["📦 Database<br/>2 files, 2 functions"]
+    web_codeturtle_app["📦 Layout<br/>2 files, 2 functions"]
+    web_codeturtle_components["📦 Navigation & Components<br/>6 files, 1 functions"]
+    web_codeturtle_stores["📦 Providers & Authentication<br/>2 files, 8 functions"]
+    codeturtle_app__dashboard_["📦 Layout<br/>0 files, 0 functions"]
+    codeturtle_components_charts["📦 Dashboard<br/>1 files, 0 functions"]
+    codeturtle_components_github["📦 Components<br/>4 files, 0 functions"]
+    codeturtle_components_providers["📦 Providers & Components<br/>3 files, 0 functions"]
+    codeturtle_components_settings["📦 Components<br/>1 files, 0 functions"]
+    codeturtle_components_pages["📦 Layout & Components<br/>4 files, 0 functions"]
+    codeturtle_components_ui["📦 Components<br/>58 files, 0 functions"]
+    codeturtle_hooks_queries["📦 Database & Search<br/>2 files, 3 functions"]
+    app__auth__login["📦 Authentication<br/>0 files, 0 functions"]
+    app__dashboard__account["📦 Layout<br/>0 files, 0 functions"]
+    app__auth__register["📦 Authentication<br/>0 files, 0 functions"]
+    app__dashboard__analytics["📦 Dashboard<br/>0 files, 0 functions"]
+    app__dashboard__dashboard["📦 Dashboard<br/>0 files, 0 functions"]
+    app__dashboard__docs["📦 Layout<br/>0 files, 0 functions"]
+    app__dashboard__pricing["📦 Layout<br/>0 files, 0 functions"]
+    app__dashboard__reports["📦 Dashboard<br/>0 files, 0 functions"]
+    app__dashboard__repositories["📦 Layout<br/>0 files, 0 functions"]
+    app__dashboard__settings["📦 Config<br/>0 files, 0 functions"]
+    app__dashboard__support["📦 Layout<br/>0 files, 0 functions"]
+    generated_client_models["📦 Forms & Authentication<br/>4 files, 0 functions"]
+    components_ui_icons["📦 Components<br/>1 files, 0 functions"]
+    components_ui_shared["📦 Components & Utils<br/>3 files, 0 functions"]
+    api_webhooks_github["📦 API<br/>1 files, 2 functions"]
+    ui_shadcn_io_theme_toggle_button["📦 Components<br/>2 files, 0 functions"]
+    web_codeturtle_hooks["📦 Authentication & Forms<br/>7 files, 10 functions"]
+    codeturtle_generated_client["📦 Search<br/>5 files, 0 functions"]
+    web_codeturtle_inngest["📦 Database & Blog<br/>2 files, 1 functions"]
+    desktop_web_codeturtle["📦 Config & API<br/>6 files, 2 functions"]
+    web_codeturtle_utils["📦 Authentication & Utils<br/>1 files, 1 functions"]
+    app_api_inngest["📦 API<br/>1 files, 0 functions"]
+    app_api_user["📦 API<br/>1 files, 1 functions"]
+    module_dashboard_actions["📦 Authentication & Secrets<br/>1 files, 3 functions"]
+    module_repository_actions["📦 Database<br/>1 files, 2 functions"]
+    module_repository_hooks["📦 Database<br/>2 files, 2 functions"]
+    module_review_actions["📦 Authentication & Storage<br/>1 files, 8 functions"]
+    module_settings_actions["📦 Authentication & Database<br/>1 files, 5 functions"]
+    api_auth__all_["📦 API<br/>0 files, 0 functions"]
+    api_user_github_account["📦 API<br/>1 files, 1 functions"]
+    api_user_update_avatar["📦 API<br/>1 files, 1 functions"]
+
+    web_codeturtle_hooks -->|2 calls| codeturtle_hooks_queries
+    web_codeturtle_hooks -->|3 calls| web_codeturtle_lib
+    web_codeturtle_hooks -->|2 calls| module_settings_actions
+    module_dashboard_actions -->|7 calls| codeturtle_module_github
+    module_repository_actions -->|3 calls| codeturtle_module_github
+    module_repository_hooks -->|3 calls| module_repository_actions
+    module_review_actions -->|10 calls| web_codeturtle_lib
+    module_review_actions -->|2 calls| module_ai_lib
+    module_settings_actions -->|3 calls| codeturtle_module_github
+    desktop_web_codeturtle -->|1 calls| web_codeturtle_lib
+    web_codeturtle_hooks -->|1 calls| web_codeturtle_stores
+    web_codeturtle_inngest -->|2 calls| web_codeturtle_lib
+    web_codeturtle_inngest -->|1 calls| codeturtle_module_github
+    web_codeturtle_inngest -->|1 calls| module_ai_lib
+    web_codeturtle_utils -->|1 calls| web_codeturtle_lib
+    codeturtle_generated_client -->|3 calls| generated_client_internal
+    codeturtle_module_github -->|2 calls| web_codeturtle_lib
+    app_api_inngest -->|2 calls| web_codeturtle_inngest
+    app_api_user -->|1 calls| web_codeturtle_lib
+    module_ai_lib -->|1 calls| web_codeturtle_lib
+    module_dashboard_actions -->|1 calls| web_codeturtle_lib
+    module_repository_actions -->|2 calls| web_codeturtle_lib
+    module_review_actions -->|1 calls| web_codeturtle_inngest
+    module_settings_actions -->|2 calls| web_codeturtle_lib
+    unknown -->|1 calls| web_codeturtle_lib
+    api_user_github_account -->|1 calls| web_codeturtle_lib
+    api_user_update_avatar -->|1 calls| web_codeturtle_lib
+    api_webhooks_github -->|1 calls| web_codeturtle_lib
+
+    classDef module fill:#3b82f6,stroke:#60a5fa,color:#f8fafc,stroke-width:2px
+    class web_codeturtle_lib module
+    class generated_client_internal module
+    class module_ai_lib module
+    class codeturtle_module_github module
+    class web_codeturtle_prisma module
+    class web_codeturtle_app module
+    class web_codeturtle_components module
+    class web_codeturtle_stores module
+    class codeturtle_app__dashboard_ module
+    class codeturtle_components_charts module
+    class codeturtle_components_github module
+    class codeturtle_components_providers module
+    class codeturtle_components_settings module
+    class codeturtle_components_pages module
+    class codeturtle_components_ui module
+    class codeturtle_hooks_queries module
+    class app__auth__login module
+    class app__dashboard__account module
+    class app__auth__register module
+    class app__dashboard__analytics module
+    class app__dashboard__dashboard module
+    class app__dashboard__docs module
+    class app__dashboard__pricing module
+    class app__dashboard__reports module
+    class app__dashboard__repositories module
+    class app__dashboard__settings module
+    class app__dashboard__support module
+    class generated_client_models module
+    class components_ui_icons module
+    class components_ui_shared module
+    class api_webhooks_github module
+    class ui_shadcn_io_theme_toggle_button module
+    class web_codeturtle_hooks module
+    class codeturtle_generated_client module
+    class web_codeturtle_inngest module
+    class desktop_web_codeturtle module
+    class web_codeturtle_utils module
+    class app_api_inngest module
+    class app_api_user module
+    class module_dashboard_actions module
+    class module_repository_actions module
+    class module_repository_hooks module
+    class module_review_actions module
+    class module_settings_actions module
+    class api_auth__all_ module
+    class api_user_github_account module
+    class api_user_update_avatar module

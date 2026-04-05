@@ -1,0 +1,38 @@
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "lineColor": "#64748b", "secondaryColor": "#334155", "tertiaryColor": "#475569", "background": "#0f172a", "mainBkg": "#1e293b", "nodeBorder": "#475569"}}}%%
+graph TD
+    subgraph mod_web_codeturtle_hooks["📦 Module: Authentication & Forms"]
+        subgraph file_c__users_ansh_desktop_web_codeturtle_src_hooks_use_auth_ts["📄 use-auth.ts"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_auth_ts_useauth["λ useAuth"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_auth_ts_signout["λ signOut"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_auth_ts_userequireauth["λ useRequireAuth"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_auth_ts_useredirectifauthenticated["⚡ useRedirectIfAuthenticated"]
+        end
+        subgraph file_c__users_ansh_desktop_web_codeturtle_src_hooks_use_mobile_ts["📄 use-mobile.ts"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_mobile_ts_useismobile["⚡ useIsMobile"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_mobile_ts_onchange["⚡ onChange"]
+        end
+        subgraph file_c__users_ansh_desktop_web_codeturtle_src_hooks_use_require_github_ts["📄 use-require-github.ts"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_require_github_ts_userequiregithub["⚡ useRequireGithub"]
+        end
+        subgraph file_c__users_ansh_desktop_web_codeturtle_src_hooks_use_signout_ts["📄 use-signout.ts"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_signout_ts_usesignout["⚡ useSignOut"]
+        end
+        subgraph file_c__users_ansh_desktop_web_codeturtle_src_hooks_useform_ts["📄 useform.ts"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_hooks_useform_ts_useform["λ useForm"]
+        end
+        subgraph file_c__users_ansh_desktop_web_codeturtle_src_hooks_useprofile_ts["📄 useprofile.ts"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_hooks_useprofile_ts_useprofile["⚡ useProfile"]
+        end
+    end
+
+    fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_auth_ts_useauth --> fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_auth_ts_signout
+    fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_auth_ts_userequireauth --> fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_auth_ts_useauth
+    fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_auth_ts_useredirectifauthenticated --> fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_auth_ts_useauth
+    fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_require_github_ts_userequiregithub -.->|"calls"| ext_fn_c__users_ansh_desktop_web_codeturtle_src_hooks_queries_use_github_account_ts_usegithubaccount["🔗 useGithubAccount<br/>(codeturtle-hooks-queries)"]
+    fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_signout_ts_usesignout --> fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_auth_ts_userequireauth
+    fn_c__users_ansh_desktop_web_codeturtle_src_hooks_useprofile_ts_useprofile --> fn_c__users_ansh_desktop_web_codeturtle_src_hooks_useform_ts_useform
+    fn_c__users_ansh_desktop_web_codeturtle_src_hooks_useprofile_ts_useprofile -.->|"calls"| ext_fn_c__users_ansh_desktop_web_codeturtle_src_lib_validation_ts_validatedata["🔗 validateData<br/>(web-codeturtle-lib)"]
+    fn_c__users_ansh_desktop_web_codeturtle_src_hooks_useprofile_ts_useprofile -.->|"calls"| ext_fn_c__users_ansh_desktop_web_codeturtle_src_module_settings_actions_index_ts_updateuserprofile["🔗 updateUserProfile<br/>(module-settings-actions)"]
+
+    classDef default fill:#334155,stroke:#64748b,color:#e2e8f0,stroke-width:1px
+    classDef external fill:#1e293b,stroke:#475569,color:#94a3b8,stroke-dasharray: 5 5

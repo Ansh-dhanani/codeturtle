@@ -174,10 +174,14 @@ export async function generateCodeReview(params: {
 
   const selectedProvider = provider || user?.aiProvider || "google";
   const selectedModel = model || user?.aiModel || "gemini-2.5-flash";
-  const normalizedSelectedModel =
-    selectedProvider === "openrouter" && selectedModel === "moonshotai/kimi-k2:free"
-      ? "moonshotai/kimi-k2"
-      : selectedModel;
+  let normalizedSelectedModel = selectedModel;
+  if (selectedProvider === "openrouter") {
+    if (selectedModel === "moonshotai/kimi-k2:free") {
+      normalizedSelectedModel = "moonshotai/kimi-k2";
+    } else if (selectedModel === "qwen/qwen3-32b:free") {
+      normalizedSelectedModel = "qwen/qwen3.6-plus:free";
+    }
+  }
   const userApiKey = getProviderScopedApiKey(selectedProvider, user?.aiApiKey);
 
   let octokit: Octokit | null = null;
@@ -376,6 +380,11 @@ Provide a structured review with specific issues, suggestions, and an overall sc
 
         const fallbackModels = [
           "openrouter/auto",
+          "qwen/qwen3-coder:free",
+          "stepfun/step-3.5-flash:free",
+          "openai/gpt-oss-20b:free",
+          "nvidia/nemotron-3-nano-30b-a3b:free",
+          "minimax/minimax-m2.5:free",
           "qwen/qwen3.6-plus:free",
           "meta-llama/llama-3.1-8b-instruct:free",
         ];

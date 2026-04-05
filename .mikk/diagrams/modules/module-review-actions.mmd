@@ -1,0 +1,26 @@
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "lineColor": "#64748b", "secondaryColor": "#334155", "tertiaryColor": "#475569", "background": "#0f172a", "mainBkg": "#1e293b", "nodeBorder": "#475569"}}}%%
+graph TD
+    subgraph mod_module_review_actions["📦 Module: Authentication & Storage"]
+        subgraph file_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts["📄 index.ts"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_getreviews["⚡ getReviews"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_getreviewbyid["⚡ getReviewById"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_triggerreview["⚡ triggerReview"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_triggerfilereview["⚡ triggerFileReview"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_getusersubscription["⚡ getUserSubscription"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_checkcanconnectrepo["⚡ checkCanConnectRepo"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_deletereview["⚡ deleteReview"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_generatefixpr["⚡ generateFixPR"]
+        end
+    end
+
+    fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_triggerreview -.->|"calls"| ext_fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_checkusagelimit["🔗 checkUsageLimit<br/>(web-codeturtle-lib)"]
+    fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_triggerreview -.->|"calls"| ext_fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_checkperprreviewlimit["🔗 checkPerPRReviewLimit<br/>(web-codeturtle-lib)"]
+    fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_triggerreview -.->|"calls"| ext_fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_isspeciallimitlessuser["🔗 isSpecialLimitlessUser<br/>(web-codeturtle-lib)"]
+    fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_triggerfilereview -.->|"calls"| ext_fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_checkusagelimit["🔗 checkUsageLimit<br/>(web-codeturtle-lib)"]
+    fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_triggerfilereview -.->|"calls"| ext_fn_c__users_ansh_desktop_web_codeturtle_src_module_ai_lib_review_ts_generatecodereview["🔗 generateCodeReview<br/>(module-ai-lib)"]
+    fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_triggerfilereview -.->|"calls"| ext_fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_incrementusage["🔗 incrementUsage<br/>(web-codeturtle-lib)"]
+    fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_getusersubscription -.->|"calls"| ext_fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_getsubscriptionstatus["🔗 getSubscriptionStatus<br/>(web-codeturtle-lib)"]
+    fn_c__users_ansh_desktop_web_codeturtle_src_module_review_actions_index_ts_checkcanconnectrepo -.->|"calls"| ext_fn_c__users_ansh_desktop_web_codeturtle_src_lib_billing_server_ts_canconnectrepo["🔗 canConnectRepo<br/>(web-codeturtle-lib)"]
+
+    classDef default fill:#334155,stroke:#64748b,color:#e2e8f0,stroke-width:1px
+    classDef external fill:#1e293b,stroke:#475569,color:#94a3b8,stroke-dasharray: 5 5

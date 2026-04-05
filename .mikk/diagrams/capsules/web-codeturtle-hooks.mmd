@@ -1,0 +1,32 @@
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "lineColor": "#64748b", "secondaryColor": "#334155", "tertiaryColor": "#475569", "background": "#0f172a", "mainBkg": "#1e293b", "nodeBorder": "#475569"}}}%%
+graph LR
+
+    subgraph web_codeturtle_hooks["📦 Authentication & Forms"]
+        direction TB
+        subgraph internal["🔒 Internal"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_auth_ts_useauth["useAuth"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_auth_ts_signout["signOut"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_auth_ts_userequireauth["useRequireAuth"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_auth_ts_useredirectifauthenticated["useRedirectIfAuthenticated"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_mobile_ts_useismobile["useIsMobile"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_mobile_ts_onchange["onChange"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_require_github_ts_userequiregithub["useRequireGithub"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_signout_ts_usesignout["useSignOut"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_hooks_useform_ts_useform["useForm"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_hooks_useprofile_ts_useprofile["useProfile"]
+        end
+    end
+
+
+    classDef publicApi fill:#22c55e,stroke:#4ade80,color:#f0fdf4
+    classDef internalApi fill:#64748b,stroke:#94a3b8,color:#f1f5f9
+    class fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_auth_ts_useauth internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_auth_ts_signout internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_auth_ts_userequireauth internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_auth_ts_useredirectifauthenticated internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_mobile_ts_useismobile internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_mobile_ts_onchange internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_require_github_ts_userequiregithub internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_hooks_use_signout_ts_usesignout internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_hooks_useform_ts_useform internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_hooks_useprofile_ts_useprofile internalApi

@@ -44,7 +44,7 @@ jobs:
         run: bun install
 
       - name: Build
-        run: bun run build --if-present
+        run: bun run --if-present build
 
       - name: Deploy to Vercel (official action)
         env:

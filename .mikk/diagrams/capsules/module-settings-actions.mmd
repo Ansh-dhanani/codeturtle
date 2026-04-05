@@ -1,0 +1,25 @@
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#1e293b", "primaryTextColor": "#e2e8f0", "lineColor": "#64748b", "secondaryColor": "#334155", "tertiaryColor": "#475569", "background": "#0f172a", "mainBkg": "#1e293b", "nodeBorder": "#475569"}}}%%
+graph LR
+
+    subgraph module_settings_actions["📦 Authentication & Database"]
+        direction TB
+        subgraph public["🔓 Public API"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_settings_actions_index_ts_updateuserprofile["updateUserProfile"]
+        end
+        subgraph internal["🔒 Internal"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_settings_actions_index_ts_getuserprofile["getUserProfile"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_settings_actions_index_ts_getconnectedrepositories["getConnectedRepositories"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_settings_actions_index_ts_disconnectrepository["disconnectRepository"]
+            fn_c__users_ansh_desktop_web_codeturtle_src_module_settings_actions_index_ts_disconnectallrepository["disconnectAllRepository"]
+        end
+    end
+
+    ext_fn_c__users_ansh_desktop_web_codeturtle_src_hooks_useprofile_ts_useprofile["useProfile<br/>(web-codeturtle-hooks)"] --> fn_c__users_ansh_desktop_web_codeturtle_src_module_settings_actions_index_ts_updateuserprofile
+
+    classDef publicApi fill:#22c55e,stroke:#4ade80,color:#f0fdf4
+    classDef internalApi fill:#64748b,stroke:#94a3b8,color:#f1f5f9
+    class fn_c__users_ansh_desktop_web_codeturtle_src_module_settings_actions_index_ts_updateuserprofile publicApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_module_settings_actions_index_ts_getuserprofile internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_module_settings_actions_index_ts_getconnectedrepositories internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_module_settings_actions_index_ts_disconnectrepository internalApi
+    class fn_c__users_ansh_desktop_web_codeturtle_src_module_settings_actions_index_ts_disconnectallrepository internalApi
