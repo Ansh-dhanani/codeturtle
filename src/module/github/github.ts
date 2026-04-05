@@ -163,7 +163,33 @@ export const createWebhook = async (owner: string, repo: string) => {
   }
 
   const existingHook = hooks.find((hook) => hook.config.url === webhookUrl);
+  const desiredEvents = ["pull_request", "issue_comment", "pull_request_review_comment"];
+
   if (existingHook) {
+    const existingEvents = Array.isArray(existingHook.events) ? existingHook.events : [];
+    const needsEventUpdate = desiredEvents.some((eventName) => !existingEvents.includes(eventName));
+
+    if (needsEventUpdate) {
+      try {
+        await octokit.rest.repos.updateWebhook({
+          owner,
+          repo,
+          hook_id: existingHook.id,
+          config: {
+            url: webhookUrl,
+            content_type: "json",
+          },
+          events: desiredEvents,
+          active: true,
+        });
+      } catch (error: any) {
+        if (isGithubBadCredentialError(error)) {
+          throw new Error("GitHub authentication expired. Please reconnect your GitHub account and try again.");
+        }
+        throw new Error("Failed to update existing GitHub webhook events.");
+      }
+    }
+
     return { ...existingHook, secret: null } as typeof existingHook & { secret: string | null };
   }
 
@@ -177,7 +203,7 @@ export const createWebhook = async (owner: string, repo: string) => {
         content_type: "json",
         secret,
       },
-      events: ["pull_request"],
+      events: desiredEvents,
     });
     return { ...response.data, secret };
   } catch (error: any) {
