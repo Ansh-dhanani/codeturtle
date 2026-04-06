@@ -5,6 +5,12 @@ import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { deleteWebhook } from "@/module/github/github";
 import { AI_PROVIDERS } from "@/lib/ai-providers";
+import {
+  normalizeCustomPrompt,
+  normalizeRepoReviewModes,
+  serializeRepoReviewModes,
+  type RepoReviewStyle,
+} from "@/module/repository/lib/settings";
 
 function isApiKeyFormatValidForProvider(provider: string, apiKey: string): boolean {
   const key = apiKey.trim();
@@ -132,12 +138,20 @@ export async function getConnectedRepositories() {
       select: {
         id: true,
         name: true,
+        owner: true,
+        fullName: true,
         url: true,
+        reviewStyle: true,
+        memesEnabled: true,
+        customPrompt: true,
         createdAt: true,
       },
       orderBy: { createdAt: "desc" },
     });
-    return repositories;
+    return repositories.map((repository) => ({
+      ...repository,
+      reviewModes: normalizeRepoReviewModes(repository.reviewStyle),
+    }));
   } catch (error) {
     console.error("Error fetching connected repositories:", error);
     throw new Error("Failed to fetch connected repositories");
@@ -219,4 +233,53 @@ export async function disconnectAllRepository() {
         console.error("Error disconnecting all repositories:", error);
       throw new Error("Failed to disconnect all repositories");
     }
+}
+
+export async function updateRepositoryBehaviorSettings(data: {
+  repositoryId: string;
+  reviewStyle?: RepoReviewStyle;
+  reviewModes?: RepoReviewStyle[];
+  memesEnabled: boolean;
+  customPrompt?: string | null;
+}) {
+  try {
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    });
+    if (!session) {
+      throw new Error("User not authenticated");
+    }
+
+    const repository = await prisma.repository.findFirst({
+      where: {
+        id: data.repositoryId,
+        userId: session.user.id,
+      },
+      select: { id: true },
+    });
+
+    if (!repository) {
+      throw new Error("Repository not found");
+    }
+
+    const customPrompt = normalizeCustomPrompt(data.customPrompt, 2000);
+
+    await prisma.repository.update({
+      where: { id: data.repositoryId },
+      data: {
+        reviewStyle: serializeRepoReviewModes(
+          normalizeRepoReviewModes(data.reviewModes || data.reviewStyle),
+        ),
+        memesEnabled: Boolean(data.memesEnabled),
+        customPrompt,
+      },
+    });
+
+    revalidatePath("/repositories", "page");
+    revalidatePath("/settings", "page");
+    return { success: true };
+  } catch (error) {
+    console.error("Error updating repository behavior settings:", error);
+    throw new Error("Failed to update repository settings");
+  }
 }

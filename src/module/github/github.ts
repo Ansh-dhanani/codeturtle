@@ -162,10 +162,25 @@ export const createWebhook = async (owner: string, repo: string) => {
     throw new Error("Failed to read repository webhooks from GitHub.");
   }
 
-  const existingHook = hooks.find((hook) => hook.config.url === webhookUrl);
-  const desiredEvents = ["pull_request", "issue_comment", "pull_request_review_comment"];
+  const matchingHooks = hooks.filter((hook) => hook.config.url === webhookUrl);
+  const [existingHook, ...duplicateHooks] = matchingHooks;
+  const desiredEvents = ["pull_request", "issue_comment", "pull_request_review_comment", "pull_request_review"];
 
   if (existingHook) {
+    for (const duplicate of duplicateHooks) {
+      try {
+        await octokit.rest.repos.deleteWebhook({
+          owner,
+          repo,
+          hook_id: duplicate.id,
+        });
+      } catch (error: any) {
+        if (error?.status !== 404) {
+          console.warn("Failed to delete duplicate webhook", { owner, repo, hookId: duplicate.id, error: error?.message });
+        }
+      }
+    }
+
     const existingEvents = Array.isArray(existingHook.events) ? existingHook.events : [];
     const needsEventUpdate = desiredEvents.some((eventName) => !existingEvents.includes(eventName));
 
@@ -253,6 +268,15 @@ export async function getRepoFileContents(
   path: string = "",
 ): Promise<{ path: string; content: string }[]> {
   const octokit = new Octokit({ auth: token });
+  return getRepoFileContentsFromOctokit(octokit, repo, owner, path);
+}
+
+export async function getRepoFileContentsFromOctokit(
+  octokit: Octokit,
+  repo: string,
+  owner: string,
+  path: string = "",
+): Promise<{ path: string; content: string }[]> {
 
   let data;
   try {
@@ -306,7 +330,7 @@ export async function getRepoFileContents(
         }
       }
     } else if (item.type === "dir") {
-      const subFiles = await getRepoFileContents(token, repo, owner, item.path);
+      const subFiles = await getRepoFileContentsFromOctokit(octokit, repo, owner, item.path);
       files = files.concat(subFiles);
     }
   }

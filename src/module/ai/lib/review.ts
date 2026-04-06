@@ -1,7 +1,5 @@
-import { generateObject } from "ai";
+import { generateObject, type LanguageModel } from "ai";
 import { google } from "@ai-sdk/google";
-import { openai } from "@ai-sdk/openai";
-import { anthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { Octokit } from "octokit";
@@ -9,6 +7,12 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { queryCodebase } from "./rag";
 import { logger } from "@/lib/logger";
+import {
+  getReviewModesInstruction,
+  normalizeCustomPrompt,
+  normalizeRepoReviewModes,
+  type RepoReviewStyle,
+} from "@/module/repository/lib/settings";
 
 const ReviewIssueSchema = z.object({
   severity: z.enum(["critical", "warning", "info"]),
@@ -44,8 +48,229 @@ type CodeReviewWithReviewer = CodeReview & {
 
 const REVIEW_MAX_TOKENS = 4096;
 const REVIEW_LOW_CREDIT_MAX_TOKENS = 1200;
+const REVIEW_FILE_CONTEXT_LIMIT = 8;
 
 const PRISMA_MAX_RETRIES = 3;
+const SEVERITY_ORDER: Record<"critical" | "warning" | "info", number> = {
+  critical: 0,
+  warning: 1,
+  info: 2,
+};
+
+type ParsedDiffContext = {
+  changedFiles: Set<string>;
+  changedLinesByFile: Map<string, Set<number>>;
+};
+
+function normalizeFilePath(value: string): string {
+  return value.replace(/^a\//, "").replace(/^b\//, "").trim();
+}
+
+function normalizeTextForKey(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function parseChangedDiffContext(diff: string): ParsedDiffContext {
+  const changedFiles = new Set<string>();
+  const changedLinesByFile = new Map<string, Set<number>>();
+
+  let currentFile: string | null = null;
+  let currentNewLine = 0;
+
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("+++ ")) {
+      const rawPath = line.slice(4).trim();
+      if (!rawPath || rawPath === "/dev/null") {
+        currentFile = null;
+        continue;
+      }
+      currentFile = normalizeFilePath(rawPath);
+      changedFiles.add(currentFile);
+      if (!changedLinesByFile.has(currentFile)) {
+        changedLinesByFile.set(currentFile, new Set<number>());
+      }
+      continue;
+    }
+
+    if (line.startsWith("@@ ")) {
+      const match = line.match(/\+(\d+)(?:,(\d+))?/);
+      if (match) {
+        currentNewLine = Number(match[1]);
+      }
+      continue;
+    }
+
+    if (!currentFile) continue;
+
+    if (line.startsWith("+") && !line.startsWith("+++")) {
+      changedLinesByFile.get(currentFile)?.add(currentNewLine);
+      currentNewLine += 1;
+      continue;
+    }
+
+    if (line.startsWith(" ")) {
+      currentNewLine += 1;
+      continue;
+    }
+
+    if (line.startsWith("-")) {
+      continue;
+    }
+  }
+
+  return { changedFiles, changedLinesByFile };
+}
+
+function isNearChangedLine(context: ParsedDiffContext, file: string, line?: number): boolean {
+  if (!line || !Number.isFinite(line)) return false;
+  const lines = context.changedLinesByFile.get(file);
+  if (!lines || lines.size === 0) return false;
+  if (lines.has(line)) return true;
+
+  for (let offset = 1; offset <= 3; offset += 1) {
+    if (lines.has(line - offset) || lines.has(line + offset)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function getReviewCaps(modes: RepoReviewStyle[]): {
+  maxIssues: number;
+  maxSuggestions: number;
+  maxPositives: number;
+} {
+  const shortMode = modes.includes("short");
+  if (shortMode) {
+    return { maxIssues: 4, maxSuggestions: 3, maxPositives: 2 };
+  }
+  return { maxIssues: 8, maxSuggestions: 6, maxPositives: 4 };
+}
+
+function detectIssueFamily(value: string): string | null {
+  const normalized = normalizeTextForKey(value);
+  if (/newline at end of file|missing newline|no newline at end of file|eof/.test(normalized)) return "newline";
+  if (/placeholder|empty file|no functionality|non functional|dummy/.test(normalized)) return "placeholder";
+  if (/naming|non standard file name|file name/.test(normalized)) return "naming";
+  if (/lint|format|formatting/.test(normalized)) return "lint";
+  return null;
+}
+
+function sanitizeReviewOutput(
+  review: CodeReview,
+  params: {
+    diffContext: ParsedDiffContext;
+    changedFiles: Set<string>;
+    reviewModes: RepoReviewStyle[];
+  },
+): CodeReview {
+  const { diffContext, changedFiles, reviewModes } = params;
+  const { maxIssues, maxSuggestions, maxPositives } = getReviewCaps(reviewModes);
+
+  const cleanedSummary = review.summary.trim().slice(0, 2500) || "Review generated successfully.";
+  const boundedScore = Math.max(0, Math.min(10, Math.round(review.overallScore)));
+
+  const normalizedIssues = review.issues
+    .map((issue) => {
+      const file = normalizeFilePath(issue.file || "");
+      if (!file || !changedFiles.has(file)) return null;
+      const line =
+        typeof issue.line === "number" && Number.isFinite(issue.line) && issue.line > 0
+          ? Math.round(issue.line)
+          : undefined;
+
+      return {
+        ...issue,
+        title: issue.title.trim().slice(0, 240),
+        description: issue.description.trim().slice(0, 1600),
+        suggestion: issue.suggestion.trim().slice(0, 1200),
+        file,
+        line: isNearChangedLine(diffContext, file, line) ? line : undefined,
+      };
+    })
+    .filter((issue): issue is NonNullable<typeof issue> => Boolean(issue))
+    .filter((issue) => issue.title.length > 0 && issue.description.length > 0 && issue.suggestion.length > 0)
+    .sort((a, b) => {
+      const severityDelta = SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity];
+      if (severityDelta !== 0) return severityDelta;
+      if (Boolean(a.line) !== Boolean(b.line)) return a.line ? -1 : 1;
+      if (a.file !== b.file) return a.file.localeCompare(b.file);
+      return (a.line || 0) - (b.line || 0);
+    });
+
+  const issues: typeof review.issues = [];
+  const seenIssueKeys = new Set<string>();
+  const familyByFile = new Set<string>();
+  for (const issue of normalizedIssues) {
+    if (issues.length >= maxIssues) break;
+    const issueKey = [
+      issue.file,
+      issue.line || 0,
+      normalizeTextForKey(issue.title),
+      normalizeTextForKey(issue.description).slice(0, 120),
+    ].join("|");
+    if (seenIssueKeys.has(issueKey)) continue;
+
+    const family = detectIssueFamily(`${issue.title} ${issue.description}`);
+    const familyKey = family ? `${issue.file}|${family}` : null;
+    if (familyKey && familyByFile.has(familyKey)) continue;
+
+    seenIssueKeys.add(issueKey);
+    if (familyKey) familyByFile.add(familyKey);
+    issues.push(issue);
+  }
+
+  const suggestions = review.suggestions
+    .map((suggestion) => {
+      const file = normalizeFilePath(suggestion.file || "");
+      if (!file || !changedFiles.has(file)) return null;
+
+      return {
+        ...suggestion,
+        file,
+        title: suggestion.title.trim().slice(0, 220),
+        description: suggestion.description.trim().slice(0, 1200),
+        codeBefore: suggestion.codeBefore?.slice(0, 4000),
+        codeAfter: suggestion.codeAfter?.slice(0, 4000),
+      };
+    })
+    .filter((suggestion): suggestion is NonNullable<typeof suggestion> => Boolean(suggestion))
+    .filter((suggestion) => suggestion.title.length > 0 && suggestion.description.length > 0)
+    .filter((suggestion, index, all) => {
+      const key = `${suggestion.file}|${normalizeTextForKey(suggestion.title)}|${normalizeTextForKey(suggestion.description).slice(0, 120)}`;
+      return all.findIndex((candidate) => {
+        const candidateKey = `${candidate.file}|${normalizeTextForKey(candidate.title)}|${normalizeTextForKey(candidate.description).slice(0, 120)}`;
+        return candidateKey === key;
+      }) === index;
+    })
+    .slice(0, maxSuggestions);
+
+  const positives = review.positives
+    .map((positive) => positive.trim())
+    .filter((positive) => positive.length > 0)
+    .filter((positive, index, all) => all.findIndex((candidate) => normalizeTextForKey(candidate) === normalizeTextForKey(positive)) === index)
+    .slice(0, maxPositives);
+
+  const architectureNotes =
+    review.architectureNotes?.trim().slice(0, 1200) ||
+    (() => {
+      const files = [...changedFiles].slice(0, 4);
+      if (files.length === 0) return undefined;
+      if (files.length === 1) {
+        return `Architecture impact is localized to \`${files[0]}\`; no broad cross-module coupling changes were detected in this diff.`;
+      }
+      return `Architecture impact appears focused on: ${files.map((file) => `\`${file}\``).join(", ")}. No broad repository-wide refactor patterns were detected in this PR.`;
+    })();
+
+  return {
+    summary: cleanedSummary,
+    overallScore: boundedScore,
+    issues,
+    suggestions,
+    positives,
+    architectureNotes,
+  };
+}
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -113,7 +338,7 @@ async function withPrismaRetry<T>(label: string, fn: () => Promise<T>): Promise<
   throw new Error(`Prisma retry exhausted for ${label}`);
 }
 
-const SYSTEM_PROMPT = `You are a senior software engineer conducting a thorough code review.
+const BASE_SYSTEM_PROMPT = `You are a senior software engineer conducting a thorough code review.
 
 Analyze the code for:
 1. Bugs and logical errors
@@ -172,6 +397,23 @@ export async function generateCodeReview(params: {
     }),
   );
 
+  const repositorySettings = await withPrismaRetry("load-repository-settings", () =>
+    prisma.repository.findFirst({
+      where: { owner, name: repo, userId },
+      select: { reviewStyle: true, customPrompt: true },
+    }),
+  );
+  const reviewModes = normalizeRepoReviewModes(repositorySettings?.reviewStyle);
+  const customPrompt = normalizeCustomPrompt(repositorySettings?.customPrompt, 2000);
+  const systemPrompt = [
+    BASE_SYSTEM_PROMPT,
+    "",
+    `Repository style: ${getReviewModesInstruction(reviewModes)}`,
+    customPrompt ? `Repository custom prompt: ${customPrompt}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
   const selectedProvider = provider || user?.aiProvider || "google";
   const selectedModel = model || user?.aiModel || "gemini-2.5-flash";
   let normalizedSelectedModel = selectedModel;
@@ -222,6 +464,8 @@ export async function generateCodeReview(params: {
   const changedFiles = files
     .map((f) => f.filename)
     .filter((f) => /\.(ts|tsx|js|jsx|py|go|rs|java|rb|php|css|scss|html|sql|json|yaml|yml|toml|md)$/i.test(f));
+  const changedFilesSet = new Set(changedFiles.map((file) => normalizeFilePath(file)));
+  const diffContext = parseChangedDiffContext(diff);
 
   let contextChunks: string[] = [];
 
@@ -234,7 +478,13 @@ export async function generateCodeReview(params: {
       );
 
       if (repoRecord) {
-        const queries = changedFiles.slice(0, 5).map(async (file) => {
+        const filesForContext = files
+          .filter((f) => changedFilesSet.has(normalizeFilePath(f.filename)))
+          .sort((a, b) => (b.additions + b.deletions) - (a.additions + a.deletions))
+          .slice(0, REVIEW_FILE_CONTEXT_LIMIT)
+          .map((f) => normalizeFilePath(f.filename));
+
+        const queries = filesForContext.map(async (file) => {
           return queryCodebase(`Show me the code in ${file}`, repoRecord.id, 3);
         });
         const results = await Promise.all(queries);
@@ -266,10 +516,10 @@ Provide a structured review with specific issues, suggestions, and an overall sc
 
   logger.info("Generating AI review", { owner, repo, prNumber, contextChunks: contextChunks.length, provider: selectedProvider, model: normalizedSelectedModel });
 
-  const runReviewGeneration = async (modelToUse: any, maxOutputTokens = REVIEW_MAX_TOKENS) => {
+  const runReviewGeneration = async (modelToUse: LanguageModel, maxOutputTokens = REVIEW_MAX_TOKENS) => {
     return generateObject({
       model: modelToUse,
-      system: SYSTEM_PROMPT,
+      system: systemPrompt,
       prompt: userPrompt,
       schema: CodeReviewSchema,
       maxOutputTokens,
@@ -619,17 +869,23 @@ Provide a structured review with specific issues, suggestions, and an overall sc
     }
   }
 
+  const normalizedReview = sanitizeReviewOutput(object, {
+    diffContext,
+    changedFiles: changedFilesSet.size > 0 ? changedFilesSet : diffContext.changedFiles,
+    reviewModes,
+  });
+
   logger.info("AI review generated", {
     owner,
     repo,
     prNumber,
-    score: object.overallScore,
-    issues: object.issues.length,
-    suggestions: object.suggestions.length,
+    score: normalizedReview.overallScore,
+    issues: normalizedReview.issues.length,
+    suggestions: normalizedReview.suggestions.length,
   });
 
   return {
-    ...object,
+    ...normalizedReview,
     reviewerProvider,
     reviewerModel,
   };
@@ -667,7 +923,7 @@ Provide a structured review with specific issues, suggestions, and an overall sc
 
   const { object } = await generateObject({
     model: google("gemini-2.5-flash"),
-    system: SYSTEM_PROMPT,
+    system: BASE_SYSTEM_PROMPT,
     prompt: userPrompt,
     schema: CodeReviewSchema,
     maxOutputTokens: REVIEW_MAX_TOKENS,

@@ -28,7 +28,17 @@ type HumorContext = {
   limit?: number;
 };
 
-const EMPTY_MEMES: Record<HumorTopic, string[]> = {
+type HumorOptions = {
+  enabled?: boolean;
+  dedupeKey?: string;
+};
+
+type MemeCandidate = {
+  url: string;
+  useWhen?: string;
+};
+
+const EMPTY_MEMES: Record<HumorTopic, MemeCandidate[]> = {
   celebrate: [],
   warning: [],
   critical: [],
@@ -78,8 +88,48 @@ const QUIPS: Record<HumorScenario, string[]> = {
   ],
 };
 
-let customMemesCache: Partial<Record<HumorTopic, string[]>> | null = null;
+let customMemesCache: Partial<Record<HumorTopic, MemeCandidate[]>> | null = null;
 const resolvedMemeUrlCache = new Map<string, string | null>();
+const recentMemeByKey = new Map<string, string>();
+const recentQuipByKey = new Map<string, string>();
+
+type ConfiguredMemeItem = string | { url?: string; useWhen?: string; description?: string };
+
+function extractMemesFromConfiguredEntry(entry: unknown): MemeCandidate[] {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+
+  const record = entry as { memes?: ConfiguredMemeItem[]; url?: ConfiguredMemeItem[]; description?: string };
+  const rawItems = Array.isArray(record.memes)
+    ? record.memes
+    : Array.isArray(record.url)
+      ? record.url
+      : [];
+  const extracted: MemeCandidate[] = [];
+
+  for (const item of rawItems) {
+    if (typeof item === "string") {
+      if (isHttpUrl(item)) {
+        extracted.push({ url: item, useWhen: record.description });
+      }
+      continue;
+    }
+
+    if (!item || typeof item !== "object") continue;
+    const url = typeof item.url === "string" ? item.url : "";
+    if (!url || !isHttpUrl(url)) continue;
+
+    const useWhen =
+      typeof item.useWhen === "string"
+        ? item.useWhen
+        : typeof item.description === "string"
+          ? item.description
+          : record.description;
+
+    extracted.push({ url, useWhen });
+  }
+
+  return extracted;
+}
 
 function normalizeCategory(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -171,30 +221,30 @@ function mapCategoryToTopics(category: string): HumorTopic[] {
   return [];
 }
 
-function loadConfiguredMemes(): Partial<Record<HumorTopic, string[]>> {
-  const accepted: Partial<Record<HumorTopic, string[]>> = {};
+function loadConfiguredMemes(): Partial<Record<HumorTopic, MemeCandidate[]>> {
+  const accepted: Partial<Record<HumorTopic, MemeCandidate[]>> = {};
 
   for (const entry of configuredMemes) {
-    if (!entry || typeof entry.category !== "string" || !Array.isArray(entry.url)) continue;
+    if (!entry || typeof entry.category !== "string") continue;
 
     const topics = mapCategoryToTopics(entry.category);
     if (topics.length === 0) continue;
 
-    const urls = entry.url.filter((candidate): candidate is string => typeof candidate === "string" && isHttpUrl(candidate));
-    if (urls.length === 0) continue;
+    const memes = extractMemesFromConfiguredEntry(entry);
+    if (memes.length === 0) continue;
 
     for (const topic of topics) {
-      accepted[topic] = [...(accepted[topic] ?? []), ...urls];
+      accepted[topic] = [...(accepted[topic] ?? []), ...memes];
     }
   }
 
   return accepted;
 }
 
-function loadCustomMemes(): Partial<Record<HumorTopic, string[]>> {
+function loadCustomMemes(): Partial<Record<HumorTopic, MemeCandidate[]>> {
   if (customMemesCache) return customMemesCache;
 
-  const accepted: Partial<Record<HumorTopic, string[]>> = loadConfiguredMemes();
+  const accepted: Partial<Record<HumorTopic, MemeCandidate[]>> = loadConfiguredMemes();
   const raw = process.env.CODETURTLE_MEME_GIFS;
   if (!raw) {
     customMemesCache = accepted;
@@ -207,10 +257,12 @@ function loadCustomMemes(): Partial<Record<HumorTopic, string[]>> {
       if (!(topic in EMPTY_MEMES)) continue;
 
       const topicKey = topic as HumorTopic;
-      const urls = Array.isArray(value) ? value.filter((candidate): candidate is string => typeof candidate === "string" && isHttpUrl(candidate)) : (typeof value === "string" && isHttpUrl(value) ? [value] : []);
+      const urls = Array.isArray(value)
+        ? value.filter((candidate): candidate is string => typeof candidate === "string" && isHttpUrl(candidate))
+        : (typeof value === "string" && isHttpUrl(value) ? [value] : []);
 
       if (urls.length > 0) {
-        accepted[topicKey] = urls;
+        accepted[topicKey] = urls.map((url) => ({ url, useWhen: "Custom override meme" }));
       }
     }
     customMemesCache = accepted;
@@ -221,19 +273,57 @@ function loadCustomMemes(): Partial<Record<HumorTopic, string[]>> {
   }
 }
 
-async function pickMemeUrl(memes: Record<HumorTopic, string[]>, topic: HumorTopic): Promise<string | undefined> {
-  const urls = memes[topic];
-  if (!urls || urls.length === 0) return undefined;
+function getScenarioKeywords(scenario: HumorScenario): string[] {
+  if (scenario === "success-clean") return ["approve", "success", "happy", "clean", "celebrat"];
+  if (scenario === "success-warning") return ["warning", "minor", "cleanup", "interesting", "funny"];
+  if (scenario === "success-critical") return ["critical", "low", "bad", "poor", "rework", "sad"];
+  if (scenario === "failure-auth") return ["auth", "token", "credential"];
+  if (scenario === "failure-model") return ["model", "provider", "endpoint"];
+  if (scenario === "failure-rate-limit") return ["quota", "limit", "rate", "wallet"];
+  if (scenario === "failure-generic") return ["fail", "error", "retry"];
+  if (scenario === "in-progress") return ["start", "progress", "review", "analyz"];
+  if (scenario === "quota-limit") return ["quota", "limit", "wallet", "plan", "rate"];
+  return [];
+}
 
-  const candidates = [...urls];
+function isRelevantCandidate(candidate: MemeCandidate, scenario: HumorScenario): boolean {
+  const note = (candidate.useWhen || "").toLowerCase();
+  if (!note) return false;
+  const keywords = getScenarioKeywords(scenario);
+  return keywords.some((keyword) => note.includes(keyword));
+}
+
+async function pickMemeUrl(
+  memes: Record<HumorTopic, MemeCandidate[]>,
+  topic: HumorTopic,
+  scenario: HumorScenario,
+  options?: HumorOptions,
+): Promise<string | undefined> {
+  const configured = memes[topic];
+  if (!configured || configured.length === 0) return undefined;
+
+  const relevant = configured.filter((candidate) => isRelevantCandidate(candidate, scenario));
+  const basePool = relevant.length > 0 ? relevant : configured;
+  const recentUrl = options?.dedupeKey ? recentMemeByKey.get(options.dedupeKey) : undefined;
+  const pool =
+    recentUrl && basePool.length > 1
+      ? basePool.filter((candidate) => candidate.url !== recentUrl)
+      : basePool;
+
+  const candidates = [...pool];
   for (let i = candidates.length - 1; i > 0; i -= 1) {
     const j = Math.floor(Math.random() * (i + 1));
     [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
   }
 
   for (const candidate of candidates) {
-    const resolved = await resolveRenderableMemeUrl(candidate);
-    if (resolved) return resolved;
+    const resolved = await resolveRenderableMemeUrl(candidate.url);
+    if (resolved) {
+      if (options?.dedupeKey) {
+        recentMemeByKey.set(options.dedupeKey, candidate.url);
+      }
+      return resolved;
+    }
   }
 
   return undefined;
@@ -251,19 +341,30 @@ function getTopicForScenario(scenario: HumorScenario): HumorTopic {
   return "warning";
 }
 
-function pickQuip(scenario: HumorScenario, context?: HumorContext): string {
+function pickQuip(scenario: HumorScenario, context?: HumorContext, options?: HumorOptions): string {
   const lines = QUIPS[scenario];
   if (!lines || lines.length === 0) return "CodeTurtle is reviewing with extra vibes.";
 
+  const lastQuip = options?.dedupeKey ? recentQuipByKey.get(options.dedupeKey) : undefined;
+  const candidateLines =
+    lastQuip && lines.length > 1
+      ? lines.filter((line) => line !== lastQuip)
+      : lines;
+  const selected = candidateLines[Math.floor(Math.random() * candidateLines.length)] || lines[0];
+
+  if (options?.dedupeKey) {
+    recentQuipByKey.set(options.dedupeKey, selected);
+  }
+
   if (scenario === "success-critical" && typeof context?.score === "number") {
-    return `${lines[0]} (Score: ${context.score}/10)`;
+    return `${selected} (Score: ${context.score}/10)`;
   }
 
   if (scenario === "quota-limit" && typeof context?.used === "number" && typeof context?.limit === "number") {
-    return `${lines[0]} (${context.used}/${context.limit})`;
+    return `${selected} (${context.used}/${context.limit})`;
   }
 
-  return lines[0];
+  return selected;
 }
 
 function isHumorEnabled(): boolean {
@@ -271,13 +372,18 @@ function isHumorEnabled(): boolean {
   return value !== "off" && value !== "false" && value !== "0";
 }
 
-export async function getHumorLines(scenario: HumorScenario, context?: HumorContext): Promise<string[]> {
+export async function getHumorLines(
+  scenario: HumorScenario,
+  context?: HumorContext,
+  options?: HumorOptions,
+): Promise<string[]> {
+  if (options?.enabled === false) return [];
   if (!isHumorEnabled()) return [];
 
   const topic = getTopicForScenario(scenario);
   const memes = { ...EMPTY_MEMES, ...loadCustomMemes() };
-  const gifUrl = await pickMemeUrl(memes, topic);
-  const quip = pickQuip(scenario, context);
+  const gifUrl = await pickMemeUrl(memes, topic, scenario, options);
+  const quip = pickQuip(scenario, context, options);
 
   const lines = [
     "",

@@ -104,6 +104,9 @@ model Repository {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   hookId    BigInt?
   hookSecret String?
+  reviewStyle String @default("balanced")
+  memesEnabled Boolean @default(true)
+  customPrompt String?
   reviews   CodeReview[]
   
   createdAt DateTime @default(now())
