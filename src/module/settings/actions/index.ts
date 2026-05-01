@@ -163,78 +163,80 @@ export async function getConnectedRepositories() {
 export async function disconnectRepository(repositoryId: string) {
   try {
     const session = await auth.api.getSession({
-        headers: await headers(),
-        });
+      headers: await headers(),
+    });
     if (!session) {
-        throw new Error("User not authenticated");
+      throw new Error("User not authenticated");
     }
     const repository = await prisma.repository.findUnique({
-        where: {
-            id: repositoryId,
-            userId: session.user.id,
-        },
-        select: {
-            owner: true,
-            name: true,
-            hookId: true,
-        },
+      where: {
+        id: repositoryId,
+        userId: session.user.id,
+      },
+      select: {
+        owner: true,
+        name: true,
+        hookId: true,
+      },
     });
-    if(!repository){
-        throw new Error("Repository not found");
+    if (!repository) {
+      throw new Error("Repository not found");
     }
     if (repository.hookId) {
-        await deleteWebhook(repository.owner, repository.name, Number(repository.hookId));
+      await deleteWebhook(repository.owner, repository.name, Number(repository.hookId));
     }
     await prisma.repository.delete({
-        where: {
-            id: repositoryId,
-            userId: session.user.id,
-        },
+      where: {
+        id: repositoryId,
+        userId: session.user.id,
+      },
     });
     revalidatePath("/repositories", "page");
     revalidatePath("/settings", "page");
     return { success: true };
   } catch (error) {
     console.error("Error disconnecting repository:", error);
-    throw new Error("Failed to disconnect repository");
+    const message = error instanceof Error ? error.message : "Failed to disconnect repository";
+    return { success: false, error: message };
   }
 }
 
 export async function disconnectAllRepository() {
-    try {
-        const session = await auth.api.getSession({
-            headers: await headers(),
-        });
-        if (!session) {
-            throw new Error("User not authenticated");
-        }
-        const repositories = await prisma.repository.findMany({
-            where: {
-                userId: session.user.id,
-            },
-        });
-        await Promise.allSettled(repositories.map(async (repository) => {
-          if (repository.hookId) {
-            try {
-              await deleteWebhook(repository.owner, repository.name, Number(repository.hookId));
-            } catch (err) {
-              console.error(`Failed to delete webhook for ${repository.owner}/${repository.name}:`, err);
-            }
-          }
-        }));
-        await prisma.repository.deleteMany({
-            where: {
-                userId: session.user.id,
-            },
-        });
-
-        revalidatePath("/repositories", "page");
-        revalidatePath("/settings", "page");
-        return { success: true };
-    } catch (error) {
-        console.error("Error disconnecting all repositories:", error);
-      throw new Error("Failed to disconnect all repositories");
+  try {
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    });
+    if (!session) {
+      throw new Error("User not authenticated");
     }
+    const repositories = await prisma.repository.findMany({
+      where: {
+        userId: session.user.id,
+      },
+    });
+    await Promise.allSettled(repositories.map(async (repository) => {
+      if (repository.hookId) {
+        try {
+          await deleteWebhook(repository.owner, repository.name, Number(repository.hookId));
+        } catch (err) {
+          console.error(`Failed to delete webhook for ${repository.owner}/${repository.name}:`, err);
+        }
+      }
+    }));
+    await prisma.repository.deleteMany({
+      where: {
+        userId: session.user.id,
+      },
+    });
+
+    revalidatePath("/repositories", "page");
+    revalidatePath("/settings", "page");
+    return { success: true };
+  } catch (error) {
+    console.error("Error disconnecting all repositories:", error);
+    const message = error instanceof Error ? error.message : "Failed to disconnect all repositories";
+    return { success: false, error: message };
+  }
 }
 
 export async function updateRepositoryBehaviorSettings(data: {
@@ -301,6 +303,7 @@ export async function updateRepositoryBehaviorSettings(data: {
     return { success: true };
   } catch (error) {
     console.error("Error updating repository behavior settings:", error);
-    throw new Error("Failed to update repository settings");
+    const message = error instanceof Error ? error.message : "Failed to update repository settings";
+    return { success: false, error: message };
   }
 }

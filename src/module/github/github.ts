@@ -157,9 +157,9 @@ export const createWebhook = async (owner: string, repo: string) => {
       throw new Error("GitHub authentication expired. Please reconnect your GitHub account and try again.");
     }
     if (error?.status === 404 || error?.status === 403) {
-      throw new Error("Webhook permission denied. Reconnect GitHub and grant repository + webhook permissions, then retry.");
+      throw new Error(`Webhook permission denied (HTTP ${error.status}). GitHub says: ${error.message || "Unknown"}. Verify you are an admin of this repository, and if it's an Organization repo, ensure the Organization allows third-party OAuth access.`);
     }
-    throw new Error("Failed to read repository webhooks from GitHub.");
+    throw new Error(`Failed to read repository webhooks from GitHub! GitHub says: ${error?.message || "Unknown error"}`);
   }
 
   const matchingHooks = hooks.filter((hook) => hook.config.url === webhookUrl);
@@ -226,7 +226,7 @@ export const createWebhook = async (owner: string, repo: string) => {
       throw new Error("GitHub authentication expired. Please reconnect your GitHub account and try again.");
     }
     if (error?.status === 404 || error?.status === 403) {
-      throw new Error("Webhook permission denied. Reconnect GitHub and grant repository + webhook permissions, then retry.");
+      throw new Error(`Webhook permission denied (HTTP ${error.status}). GitHub says: ${error.message || "Unknown"}. Verify you are an admin of this repository, and if it's an Organization repo, ensure the Organization allows third-party OAuth access.`);
     }
     if (error?.status === 422) {
       throw new Error("GitHub rejected webhook creation (422). Remove duplicate hooks if needed and retry.");

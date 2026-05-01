@@ -73,10 +73,7 @@ export const fetchUserRepositories = async (page: number = 1, perPage: number = 
     } catch (error) {
         console.error('Error fetching user repositories:', error);
         const message = error instanceof Error ? error.message : 'Failed to fetch repositories';
-        if (/bad credentials|authentication expired|reconnect your github/i.test(message)) {
-            throw new Error('GitHub authentication expired. Reconnect your GitHub account in settings and try again.');
-        }
-        throw new Error('Failed to fetch repositories');
+        return { error: message };
     }
 }
 
@@ -125,9 +122,6 @@ export const connectRepository = async (owner: string, repo: string, githubId: n
     } catch (error) {
         console.error('Error connecting repository:', error);
         const message = error instanceof Error ? error.message : 'Failed to connect repository';
-        if (/bad credentials|authentication expired|reconnect your github/i.test(message)) {
-            return { error: 'GitHub authentication expired. Reconnect your GitHub account in settings and try again.' };
-        }
         return { error: message };
     }
 }

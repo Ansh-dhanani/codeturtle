@@ -6,7 +6,11 @@ export const useRepositories = () => {
     return useInfiniteQuery({
         queryKey: ["repositories"],
         queryFn: async ({ pageParam = 1 }) => {
-            return fetchUserRepositories(pageParam, 10);
+            const data = await fetchUserRepositories(pageParam, 10);
+            if (data && !Array.isArray(data) && 'error' in data) {
+                throw new Error(data.error as string);
+            }
+            return data as any[];
         }
         ,
         getNextPageParam: (lastPage, allPages) => {

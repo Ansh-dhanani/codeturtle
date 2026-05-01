@@ -99,7 +99,7 @@ export function RepositoryList() {
         queryClient.invalidateQueries({ queryKey: ['repository-stats'] });
         toast.success('Repository disconnected successfully');
       } else {
-        toast.error('Failed to disconnect repository');
+        toast.error(result?.error || 'Failed to disconnect repository');
       }
     },
     onSettled: () => {
@@ -116,7 +116,7 @@ export function RepositoryList() {
         toast.success('All repositories disconnected successfully');
         setDisconnectAllOpen(false);
       } else {
-        toast.error('Failed to disconnect repositories');
+        toast.error(result?.error || 'Failed to disconnect repositories');
       }
     },
   });
@@ -129,15 +129,20 @@ export function RepositoryList() {
       customPrompt: string;
       aiProvider: string | null;
       aiModel: string | null;
-    }) =>
-      updateRepositoryBehaviorSettings({
+    }) => {
+      const result = await updateRepositoryBehaviorSettings({
         repositoryId: payload.repositoryId,
         reviewStyle: payload.reviewStyle,
         memesEnabled: payload.memesEnabled,
         customPrompt: payload.customPrompt,
         aiProvider: payload.aiProvider,
         aiModel: payload.aiModel,
-      }),
+      });
+      if (result && 'error' in result) {
+        throw new Error(result.error as string);
+      }
+      return result;
+    },
     onMutate: ({ repositoryId }) => {
       setSavingId(repositoryId);
     },
