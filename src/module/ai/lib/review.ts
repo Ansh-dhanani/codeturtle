@@ -15,31 +15,50 @@ import {
 } from "@/module/repository/lib/settings";
 
 const ReviewIssueSchema = z.object({
-  severity: z.enum(["critical", "warning", "info"]),
-  title: z.string(),
-  description: z.string(),
-  file: z.string(),
-  line: z.number().optional(),
-  suggestion: z.string(),
-});
+  title: z.string().default("Issue"),
+  description: z.string().default("No description provided."),
+  file: z.string().default("unknown"),
+  severity: z.enum(["critical", "warning", "info"]).default("warning"),
+  line: z.union([z.number(), z.string()]).optional().transform(v => typeof v === "string" ? parseInt(v, 10) || 0 : v),
+  suggestion: z.string().default("No suggestion provided."),
+}).transform((data) => ({
+  ...data,
+  title: data.title || "Issue",
+  description: data.description || "No description provided.",
+  file: data.file || "unknown",
+  severity: ["critical", "warning", "info"].includes(data.severity) ? data.severity : "warning",
+  suggestion: data.suggestion || "No suggestion provided.",
+}));
 
 const ReviewSuggestionSchema = z.object({
-  title: z.string(),
-  description: z.string(),
-  file: z.string(),
+  title: z.string().default("Suggestion"),
+  description: z.string().default("No description provided."),
+  file: z.string().default("unknown"),
   codeBefore: z.string().optional(),
   codeAfter: z.string().optional(),
-});
+}).transform((data) => ({
+  ...data,
+  title: data.title || "Suggestion",
+  description: data.description || "No description provided.",
+  file: data.file || "unknown",
+}));
 
 const CodeReviewSchema = z.object({
-  summary: z.string(),
-  overallScore: z.number().min(0).max(10),
-  issues: z.array(ReviewIssueSchema),
-  suggestions: z.array(ReviewSuggestionSchema),
-  positives: z.array(z.string()),
+  summary: z.string().default("No summary provided."),
+  overallScore: z.number().min(0).max(10).default(5),
+  issues: z.array(ReviewIssueSchema).default([]),
+  suggestions: z.array(ReviewSuggestionSchema).default([]),
+  positives: z.array(z.string()).default([]),
   architectureNotes: z.string().optional(),
   diagram: z.string().optional(),
-});
+}).transform((data) => ({
+  ...data,
+  summary: data.summary || "No summary provided.",
+  overallScore: typeof data.overallScore === "number" ? data.overallScore : 5,
+  issues: Array.isArray(data.issues) ? data.issues : [],
+  suggestions: Array.isArray(data.suggestions) ? data.suggestions : [],
+  positives: Array.isArray(data.positives) ? data.positives : [],
+}));
 
 type CodeReview = z.infer<typeof CodeReviewSchema>;
 type CodeReviewWithReviewer = CodeReview & {
