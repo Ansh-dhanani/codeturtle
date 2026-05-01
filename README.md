@@ -10,7 +10,7 @@
   <!-- Fallback for some markdown renderers: Markdown image with relative path -->
   <!-- ![CodeTurtle logo](./public/codeturtle-logo.svg) -->
 
-  <h1 style="margin-top: 0.5rem;">CoderTurtle</h1>
+  <h1 style="margin-top: 0.5rem;">CodeTurtle</h1>
 
   <p style="margin: 0.25rem 0 0.75rem 0;"><strong>A production-ready Next.js platform with GitHub OAuth, Webhooks, and Prisma.</strong><br />
   <small>Built for teams and developers shipping GitHub-integrated products with confidence.</small></p>
@@ -48,6 +48,18 @@ For detailed architecture, tech stack, project structure, and integration detail
 * Secure GitHub webhook handling
 * PostgreSQL + Prisma
 * Next.js App Router, Tailwind CSS
+* AI PR reviews with progress updates, threaded mentions, and Mermaid diagrams
+
+---
+
+## AI Review Behavior
+
+CodeTurtle runs automated PR reviews with repository-aware context and clear status updates.
+
+* Uses the PR diff plus related codebase context for higher-quality reviews
+* Posts a progress comment and updates status as the review runs
+* Mentions: add @codeturtle in PR comments or review comments to get a reply in the same thread
+* Diagram mode: enables Mermaid diagrams in reviews when it clarifies architecture or flow
 
 ---
 
@@ -143,6 +155,8 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
 ## Contributors
+
+Special thanks to Tyler Long for helping maintain the project.
 
 <a href="https://github.com/Ansh-dhanani/codeturtle/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=Ansh-dhanani/codeturtle" alt="CodeTurtle contributors" />

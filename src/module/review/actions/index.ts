@@ -141,8 +141,8 @@ export async function triggerFileReview(repoId: string, filePath: string) {
     throw new Error("Review limit reached. Upgrade your plan for more reviews.");
   }
 
-  const repoRecord = await prisma.repository.findUnique({
-    where: { id: repoId },
+  const repoRecord = await prisma.repository.findFirst({
+    where: { id: repoId, userId },
   });
 
   if (!repoRecord) throw new Error("Repository not found");

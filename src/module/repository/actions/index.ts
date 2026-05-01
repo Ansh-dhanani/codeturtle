@@ -11,6 +11,7 @@ import {
     serializeRepoReviewModes,
     type RepoReviewStyle,
 } from "@/module/repository/lib/settings";
+import { AI_PROVIDERS } from "@/lib/ai-providers";
 
 export const fetchUserRepositories = async (page: number = 1, perPage: number = 10) => {
     try {
@@ -34,6 +35,8 @@ export const fetchUserRepositories = async (page: number = 1, perPage: number = 
                 reviewStyle: true,
                 memesEnabled: true,
                 customPrompt: true,
+                aiProvider: true,
+                aiModel: true,
             },
         });
         const connectedRepoMap = new Map(
@@ -45,6 +48,8 @@ export const fetchUserRepositories = async (page: number = 1, perPage: number = 
                     reviewModes: normalizeRepoReviewModes(repo.reviewStyle),
                     memesEnabled: repo.memesEnabled,
                     customPrompt: repo.customPrompt,
+                    aiProvider: repo.aiProvider,
+                    aiModel: repo.aiModel,
                 },
             ]),
         );
@@ -61,6 +66,8 @@ export const fetchUserRepositories = async (page: number = 1, perPage: number = 
                     reviewModes: connected?.reviewModes || ["balanced"],
                     memesEnabled: connected?.memesEnabled ?? true,
                     customPrompt: connected?.customPrompt || null,
+                    aiProvider: connected?.aiProvider || null,
+                    aiModel: connected?.aiModel || null,
                 };
             });
     } catch (error) {
@@ -179,6 +186,8 @@ export const updateRepositoryBehaviorSettings = async (data: {
     reviewModes?: RepoReviewStyle[];
     memesEnabled: boolean;
     customPrompt?: string | null;
+    aiProvider?: string | null;
+    aiModel?: string | null;
 }) => {
     try {
         const session = await auth.api.getSession({
@@ -200,6 +209,21 @@ export const updateRepositoryBehaviorSettings = async (data: {
             throw new Error("Repository not found");
         }
 
+        const provider = data.aiProvider?.trim() || null;
+        const model = data.aiModel?.trim() || null;
+        const providerConfig = provider ? AI_PROVIDERS.find((p) => p.id === provider) : null;
+        const modelConfig = providerConfig && model
+            ? providerConfig.models.find((m) => m.id === model)
+            : null;
+
+        if (provider && !providerConfig) {
+            throw new Error("Invalid AI provider selection");
+        }
+
+        if (provider && model && !modelConfig) {
+            throw new Error("Invalid AI model selection");
+        }
+
         await prisma.repository.update({
             where: { id: repository.id },
             data: {
@@ -208,6 +232,8 @@ export const updateRepositoryBehaviorSettings = async (data: {
                 ),
                 memesEnabled: Boolean(data.memesEnabled),
                 customPrompt: normalizeCustomPrompt(data.customPrompt, 2000),
+                aiProvider: provider,
+                aiModel: provider ? model : null,
             },
         });
 

@@ -34,6 +34,7 @@ import {
   REPO_REVIEW_STYLE_OPTIONS,
   type RepoReviewStyle,
 } from '@/module/repository/lib/settings';
+import { AI_PROVIDERS } from '@/lib/ai-providers';
 
 type ConnectedRepository = {
   id: string;
@@ -44,6 +45,8 @@ type ConnectedRepository = {
   reviewStyle: string;
   memesEnabled: boolean;
   customPrompt: string | null;
+  aiProvider: string | null;
+  aiModel: string | null;
   createdAt: Date;
 };
 
@@ -51,6 +54,8 @@ type RepoDraft = {
   reviewStyle: RepoReviewStyle;
   memesEnabled: boolean;
   customPrompt: string;
+  aiProvider: string | null;
+  aiModel: string | null;
 };
 
 type RepoDraftPatch = Partial<RepoDraft>;
@@ -122,12 +127,16 @@ export function RepositoryList() {
       reviewStyle: RepoReviewStyle;
       memesEnabled: boolean;
       customPrompt: string;
+      aiProvider: string | null;
+      aiModel: string | null;
     }) =>
       updateRepositoryBehaviorSettings({
         repositoryId: payload.repositoryId,
         reviewStyle: payload.reviewStyle,
         memesEnabled: payload.memesEnabled,
         customPrompt: payload.customPrompt,
+        aiProvider: payload.aiProvider,
+        aiModel: payload.aiModel,
       }),
     onMutate: ({ repositoryId }) => {
       setSavingId(repositoryId);
@@ -152,6 +161,8 @@ export function RepositoryList() {
       reviewStyle: normalizeStyle(repo.reviewStyle),
       memesEnabled: Boolean(repo.memesEnabled),
       customPrompt: repo.customPrompt || '',
+      aiProvider: repo.aiProvider || null,
+      aiModel: repo.aiModel || null,
     };
     return {
       ...baseDraft,
@@ -165,7 +176,9 @@ export function RepositoryList() {
     return (
       draft.reviewStyle !== normalizeStyle(repo.reviewStyle) ||
       draft.memesEnabled !== Boolean(repo.memesEnabled) ||
-      draft.customPrompt.trim() !== (repo.customPrompt || '').trim()
+      draft.customPrompt.trim() !== (repo.customPrompt || '').trim() ||
+      draft.aiProvider !== (repo.aiProvider || null) ||
+      draft.aiModel !== (repo.aiModel || null)
     );
   };
 
@@ -259,6 +272,8 @@ export function RepositoryList() {
                             reviewStyle: draft.reviewStyle,
                             memesEnabled: draft.memesEnabled,
                             customPrompt: draft.customPrompt,
+                            aiProvider: draft.aiProvider,
+                            aiModel: draft.aiModel,
                           });
                         }}
                         disabled={!dirty || isSaving || disconnectingId !== null}
@@ -355,6 +370,60 @@ export function RepositoryList() {
                     <p className='text-xs text-muted-foreground'>
                       Appended to CodeTurtle instructions for this repository only.
                     </p>
+                  </div>
+
+                  <div className='space-y-3'>
+                    <Label>AI Provider (per repository)</Label>
+                    <Select
+                      value={draft.aiProvider ?? '__default__'}
+                      onValueChange={(value) => {
+                        setDrafts((prev) => ({
+                          ...prev,
+                          [repo.id]: {
+                            ...(prev[repo.id] || draft),
+                            aiProvider: value === '__default__' ? null : value,
+                            aiModel: value === '__default__' ? null : (prev[repo.id]?.aiModel || ''),
+                          },
+                        }));
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder='Use account default' />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value='__default__'>Use account default</SelectItem>
+                        {AI_PROVIDERS.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    {draft.aiProvider && (
+                      <div className='space-y-2'>
+                        <Label>AI Model</Label>
+                        <Select
+                          value={draft.aiModel || ''}
+                          onValueChange={(value) => {
+                            setDrafts((prev) => ({
+                              ...prev,
+                              [repo.id]: {
+                                ...(prev[repo.id] || draft),
+                                aiModel: value,
+                              },
+                            }));
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder='Select model' />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(AI_PROVIDERS.find((p) => p.id === draft.aiProvider)?.models || []).map((m) => (
+                              <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
                   </div>
                 </div>
               );

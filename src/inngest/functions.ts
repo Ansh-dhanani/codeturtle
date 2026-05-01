@@ -10,6 +10,17 @@ import { Prisma } from "@prisma/client";
 import { Octokit } from "octokit";
 import { checkPerPRReviewLimit, checkUsageLimit, incrementUsage, isSpecialLimitlessUser } from "@/lib/billing.server";
 import { getFailureHumorScenario, getHumorLines, getSuccessHumorScenario } from "@/lib/review-humor";
+
+type HumorScenario =
+  | "success-clean"
+  | "success-warning"
+  | "success-critical"
+  | "failure-auth"
+  | "failure-model"
+  | "failure-rate-limit"
+  | "failure-generic"
+  | "in-progress"
+  | "quota-limit";
 import {
     DEFAULT_REPO_BEHAVIOR_SETTINGS,
     getMentionModesInstruction,
@@ -64,6 +75,74 @@ async function withPrismaRetry<T>(label: string, fn: () => Promise<T>): Promise<
 
 function isTransientReviewError(message: string): boolean {
     return /(timeout|timed out|econnreset|etimedout|503|502|504|rate limit|temporar|try again)/i.test(message);
+}
+
+async function buildProgressBody(
+    status: string,
+    behaviorSettings: RepoBehaviorSettings,
+    humorDedupeKey: string,
+    existingGifUrl: string | null,
+): Promise<{ body: string; gifUrl: string | null }> {
+    let gifUrl = existingGifUrl;
+
+    // Only generate meme on first call (when we don't have one yet)
+    if (!gifUrl) {
+        const humorLines = await getHumorLines(
+            "in-progress",
+            undefined,
+            {
+                enabled: behaviorSettings.memesEnabled,
+                dedupeKey: humorDedupeKey,
+                reuseLastMeme: false,
+                reuseLastQuip: false,
+            },
+        );
+        // Extract GIF URL from the generated humor lines
+        const gifLine = humorLines.find((line) => line.startsWith("![meme-"));
+        if (gifLine) {
+            const match = gifLine.match(/\((https?:\/\/[^)]+)\)/);
+            if (match) {
+                gifUrl = match[1];
+            }
+        }
+    }
+
+    const lines = [
+        status,
+        "",
+        "Analyzing changes...",
+    ];
+
+    // Always include the initial meme GIF (never replaced)
+    if (gifUrl) {
+        lines.push(`![meme-in-progress](${gifUrl})`);
+    }
+
+    return { body: lines.join("\n"), gifUrl };
+}
+
+async function updateProgressComment(params: {
+    owner: string;
+    repo: string;
+    prNumber: number;
+    userId: string;
+    commentId: number | null;
+    status: string;
+    behaviorSettings: RepoBehaviorSettings;
+    humorDedupeKey: string;
+    progressGifUrl: string | null;
+}): Promise<void> {
+    const { owner, repo, prNumber, userId, commentId, status, behaviorSettings, humorDedupeKey, progressGifUrl } = params;
+    if (!commentId) return;
+    const octokit = await getPreferredOctokit(owner, repo, userId);
+    const { body } = await buildProgressBody(status, behaviorSettings, humorDedupeKey, progressGifUrl);
+    await octokit.rest.issues.updateComment({
+        owner,
+        repo,
+        comment_id: commentId,
+        body,
+    });
+    l.info("Updated review progress comment", { owner, repo, prNumber, commentId, status });
 }
 
 async function getPreferredOctokit(owner: string, repo: string, userId: string): Promise<Octokit> {
@@ -352,8 +431,7 @@ async function createPRFromLatestSuggestions(params: {
 }
 
 export const indexRepo = inngest.createFunction(
-{id: "index-repo"},
-{event: "repository.connected"},
+{id: "index-repo", triggers: [{ event: "repository.connected" }] },
 
 async ({ event, step }) => {
     const { owner, repo, userId, fullReindex } = event.data;
@@ -391,8 +469,7 @@ async ({ event, step }) => {
 
 
 export const reindexRepo = inngest.createFunction(
-{id: "reindex-repo"},
-{event: "repository.reindex"},
+{id: "reindex-repo", triggers: [{ event: "repository.reindex" }] },
 
 async ({ event, step }) => {
     const { owner, repo, userId } = event.data;
@@ -424,8 +501,7 @@ async ({ event, step }) => {
 
 
 export const processPREvent = inngest.createFunction(
-{id: "process-pr-event", retries: 1},
-{event: "pull_request.opened"},
+{id: "process-pr-event", retries: 1, triggers: [{ event: "pull_request.opened" }] },
 
 async ({ event, step }) => {
     const { owner, repo, prNumber, userId, action, headSha } = event.data as {
@@ -458,12 +534,7 @@ async ({ event, step }) => {
                 repo,
                 issue_number: prNumber,
                 body: [
-                    "## CodeTurtle AI Review",
-                    "",
-                    "I could not start the review because your monthly review quota is used up.",
-                    `Usage this month: ${usage.used}/${usage.limit}`,
-                    "",
-                    "Please upgrade your plan or wait until your monthly quota resets.",
+                    `Monthly quota reached: ${usage.used}/${usage.limit}. Please upgrade or wait for reset.`,
                     ...(await getHumorLines("quota-limit", { used: usage.used, limit: usage.limit }, { enabled: behaviorSettings.memesEnabled, dedupeKey: humorDedupeKey })),
                 ].join("\n"),
             });
@@ -484,12 +555,7 @@ async ({ event, step }) => {
                 repo,
                 issue_number: prNumber,
                 body: [
-                    "## CodeTurtle AI Review",
-                    "",
-                    "I could not start the review because this PR has reached the free plan limit.",
-                    `This PR usage this month: ${perPrUsage.used}/${perPrUsage.limit}`,
-                    "",
-                    "Free plan allows up to 5 automated reviews per PR each month.",
+                    `Free plan limit: ${perPrUsage.used}/${perPrUsage.limit} reviews used this month.`,
                     ...(await getHumorLines("quota-limit", { used: perPrUsage.used, limit: perPrUsage.limit }, { enabled: behaviorSettings.memesEnabled, dedupeKey: humorDedupeKey })),
                 ].join("\n"),
             });
@@ -536,13 +602,7 @@ async ({ event, step }) => {
                 repo,
                 issue_number: prNumber,
                 body: [
-                    "## CodeTurtle AI Review",
-                    "",
-                    `This PR has ${commitPolicy.commits} commits.`,
-                    `Free plan supports automated reviews for PRs with up to ${MAX_FREE_PLAN_PR_COMMITS} commits.`,
-                    "Please split this PR into smaller changes or upgrade your plan to continue.",
-                    "",
-                    "Review was not generated for this PR.",
+                    `${commitPolicy.commits} commits exceeds free plan limit (${MAX_FREE_PLAN_PR_COMMITS}). Split PR or upgrade.`,
                     ...(await getHumorLines("quota-limit", undefined, { enabled: behaviorSettings.memesEnabled, dedupeKey: humorDedupeKey })),
                 ].join("\n"),
             });
@@ -650,25 +710,50 @@ async ({ event, step }) => {
         return created.id;
     });
 
-    progressCommentId = await step.run("Post review in progress comment", async ()=>{
+    const progressGifUrl = await step.run("Post review in progress comment", async ()=>{
         const octokit = await getPreferredOctokit(owner, repo, userId);
+
+        // Generate initial comment with meme GIF
+        const { body, gifUrl } = await buildProgressBody("Review in progress...", behaviorSettings, humorDedupeKey, null);
 
         const { data: comment } = await octokit.rest.issues.createComment({
             owner,
             repo,
             issue_number: prNumber,
-            body: [
-                "## CodeTurtle AI Review",
-                "",
-                "Review in progress...",
-                "",
-                "Please wait while I analyze the changes.",
-                ...(await getHumorLines("in-progress", undefined, { enabled: behaviorSettings.memesEnabled, dedupeKey: humorDedupeKey })),
-            ].join("\n"),
+            body,
         });
-        l.info("Posted review in progress comment", { owner, repo, prNumber, commentId: comment.id });
-        return comment.id;
+        progressCommentId = comment.id;
+        l.info("Posted review in progress comment", { owner, repo, prNumber, commentId: comment.id, gifUrl });
+        return gifUrl;
     })
+
+    await step.run("Update progress: fetch context", async () => {
+        await updateProgressComment({
+            owner,
+            repo,
+            prNumber,
+            userId,
+            commentId: progressCommentId,
+            status: "Status: Fetching PR data and related code context...",
+            behaviorSettings,
+            humorDedupeKey,
+            progressGifUrl,
+        });
+    });
+
+    await step.run("Update progress: generate review", async () => {
+        await updateProgressComment({
+            owner,
+            repo,
+            prNumber,
+            userId,
+            commentId: progressCommentId,
+            status: "Status: Generating review...",
+            behaviorSettings,
+            humorDedupeKey,
+            progressGifUrl,
+        });
+    });
 
     const review = await step.run("Generate PR review", async ()=>{
         const { generateCodeReview } = await import("@/module/ai/lib/review");
@@ -689,6 +774,7 @@ async ({ event, step }) => {
                             overallScore: review.overallScore,
                             positives: review.positives,
                             architectureNotes: review.architectureNotes,
+                            diagram: review.diagram,
                         } satisfies Prisma.InputJsonValue,
                         status: "completed",
                     },
@@ -720,6 +806,7 @@ async ({ event, step }) => {
                             overallScore: review.overallScore,
                             positives: review.positives,
                             architectureNotes: review.architectureNotes,
+                            diagram: review.diagram,
                         } satisfies Prisma.InputJsonValue,
                         status: "completed",
                     },
@@ -732,6 +819,18 @@ async ({ event, step }) => {
 
     await step.run("Post review to GitHub PR", async ()=>{
         const octokit = await getPreferredOctokit(owner, repo, userId);
+
+        await updateProgressComment({
+            owner,
+            repo,
+            prNumber,
+            userId,
+            commentId: progressCommentId,
+            status: "Status: Posting review to GitHub...",
+            behaviorSettings,
+            humorDedupeKey,
+            progressGifUrl,
+        });
 
         const reviewComments: Array<{ path: string; line: number; body: string }> = [];
 
@@ -753,20 +852,20 @@ async ({ event, step }) => {
         }, { enabled: behaviorSettings.memesEnabled, dedupeKey: humorDedupeKey });
 
         const prBody = [
-            `## CodeTurtle AI Review — Score: ${review.overallScore}/10`,
-            "",
-            `Reviewer model: ${review.reviewerProvider}/${review.reviewerModel}`,
+            `**Score: ${review.overallScore}/10** | ${review.reviewerProvider}/${review.reviewerModel}`,
             "",
             review.summary,
             ...successHumorLines,
             "",
-            review.issues.length > 0 ? `### Issues Found (${review.issues.length})\n${review.issues.map((i) => `- **${i.title}** in \`${i.file}\` (${i.severity})`).join("\n")}` : "",
+            review.issues.length > 0 ? `### Issues (${review.issues.length})\n${review.issues.map((i) => `- **${i.title}** in \`${i.file}\` (${i.severity})`).join("\n")}` : "",
             "",
             review.suggestions.length > 0 ? `### Suggestions (${review.suggestions.length})\n${review.suggestions.map((s) => `- ${s.title} in \`${s.file}\``).join("\n")}` : "",
             "",
             review.positives.length > 0 ? `### Positives\n${review.positives.map((p) => `- ${p}`).join("\n")}` : "",
             "",
-            review.architectureNotes ? `### Architecture Notes\n${review.architectureNotes}` : "",
+            review.architectureNotes ? `### Architecture\n${review.architectureNotes}` : "",
+            "",
+            review.diagram ? `### Diagram\n\n\`\`\`mermaid\n${review.diagram}\n\`\`\`` : "",
         ].filter(Boolean).join("\n");
 
         if (reviewComments.length > 0) {
@@ -826,10 +925,7 @@ async ({ event, step }) => {
                 repo,
                 comment_id: progressCommentId,
                 body: [
-                    "## CodeTurtle AI Review",
-                    "",
-                    `Review complete using ${review.reviewerProvider}/${review.reviewerModel}. See the review above for details.`,
-                    ...successHumorLines,
+                    `Review complete (${review.reviewerProvider}/${review.reviewerModel}). See PR review above.`,
                 ].join("\n"),
             });
             l.info("Updated progress comment to complete", { owner, repo, prNumber, commentId: progressCommentId });
@@ -859,26 +955,43 @@ async ({ event, step }) => {
         await step.run("Post user-friendly failure comment", async ()=>{
             try {
                 const octokit = await getPreferredOctokit(owner, repo, userId);
-                let userSettings: { aiProvider: string; aiModel: string } | null = null;
+                let resolvedProvider: string | null = null;
+                let resolvedModel: string | null = null;
                 try {
-                    userSettings = await withPrismaRetry("load-user-settings-for-failure-comment", () =>
-                        prisma.user.findUnique({
-                            where: { id: userId },
+                    const repoSettings = await withPrismaRetry("load-repo-settings-for-failure-comment", () =>
+                        prisma.repository.findFirst({
+                            where: { owner, name: repo, userId },
                             select: { aiProvider: true, aiModel: true },
                         }),
                     );
-                } catch (settingsErr) {
+                    resolvedProvider = repoSettings?.aiProvider || null;
+                    resolvedModel = repoSettings?.aiModel || null;
+                } catch (repoSettingsErr) {
+                    l.warn("Could not load repository settings for failure comment", {
+                        owner, repo, prNumber, userId,
+                        error: repoSettingsErr instanceof Error ? repoSettingsErr.message : "Unknown error",
+                    });
+                }
+                try {
+                    if (resolvedProvider === null || resolvedModel === null) {
+                        const userSettings = await withPrismaRetry("load-user-settings-for-failure-comment", () =>
+                            prisma.user.findUnique({
+                                where: { id: userId },
+                                select: { aiProvider: true, aiModel: true },
+                            }),
+                        );
+                        resolvedProvider = resolvedProvider ?? userSettings?.aiProvider ?? "google";
+                        resolvedModel = resolvedModel ?? userSettings?.aiModel ?? "gemini-2.5-flash";
+                    }
+                } catch (userSettingsErr) {
                     l.warn("Could not load user settings for failure comment", {
-                        owner,
-                        repo,
-                        prNumber,
-                        userId,
-                        error: settingsErr instanceof Error ? settingsErr.message : "Unknown error",
+                        owner, repo, prNumber, userId,
+                        error: userSettingsErr instanceof Error ? userSettingsErr.message : "Unknown error",
                     });
                 }
 
-                const configuredProvider = userSettings?.aiProvider || "google";
-                const rawConfiguredModel = userSettings?.aiModel || "gemini-2.5-flash";
+                const configuredProvider = resolvedProvider || "google";
+                const rawConfiguredModel = resolvedModel || "gemini-2.5-flash";
                 const configuredModel =
                     configuredProvider === "openrouter" && rawConfiguredModel === "moonshotai/kimi-k2:free"
                         ? "moonshotai/kimi-k2"
@@ -902,13 +1015,15 @@ async ({ event, step }) => {
                     undefined,
                     { enabled: behaviorSettings.memesEnabled, dedupeKey: humorDedupeKey },
                 );
-                const body = [
-                    "## CodeTurtle AI Review",
-                    "",
-                    "Sorry, I could not complete this automated review.",
-                    `Configured reviewer model: ${configuredProvider}/${configuredModel}`,
+                const bodyWithHumor = [
+                    `Review failed: ${configuredProvider}/${configuredModel}`,
                     helpText,
                     ...failureHumor,
+                ].join("\n");
+
+                const bodyWithoutHumor = [
+                    `Review failed: ${configuredProvider}/${configuredModel}`,
+                    helpText,
                 ].join("\n");
 
                 if (progressCommentId) {
@@ -916,14 +1031,14 @@ async ({ event, step }) => {
                         owner,
                         repo,
                         comment_id: progressCommentId,
-                        body,
+                        body: bodyWithoutHumor,
                     });
                 } else {
                     await octokit.rest.issues.createComment({
                         owner,
                         repo,
                         issue_number: prNumber,
-                        body,
+                        body: bodyWithHumor,
                     });
                 }
             } catch (commentErr) {
@@ -945,16 +1060,14 @@ async ({ event, step }) => {
 
 
 export const testFunction = inngest.createFunction(
-  { id: "test-function" },
-  { event: "test.event" },
+  { id: "test-function", triggers: [{ event: "test.event" }] },
   async ({ event }) => {
     console.log("Test function executed with event data:", event.data);
   }
 );
 
 export const processPRMention = inngest.createFunction(
-  { id: "process-pr-mention", retries: 1 },
-  { event: "pull_request.mention" },
+  { id: "process-pr-mention", retries: 1, triggers: [{ event: "pull_request.mention" }] },
   async ({ event, step }) => {
     const { owner, repo, prNumber, userId, commentId, commentBody, senderLogin } = event.data as {
       owner: string;
@@ -964,6 +1077,7 @@ export const processPRMention = inngest.createFunction(
       commentId: number;
       commentBody: string;
       senderLogin: string;
+            source?: "issue_comment" | "review_comment" | "review_body";
     };
     const humorDedupeKey = `mention:${owner}/${repo}#${prNumber}`;
 
@@ -1013,17 +1127,30 @@ export const processPRMention = inngest.createFunction(
           { enabled: behaviorSettings.memesEnabled, dedupeKey: humorDedupeKey },
         );
 
-        await octokit.rest.issues.createComment({
-          owner,
-          repo,
-          issue_number: prNumber,
-          body: [
-            "## CodeTurtle Reply",
-            "",
-            commandResult.body,
-            ...commandHumorLines,
-          ].join("\n"),
-        });
+                const mentionPrefix = senderLogin ? `@${senderLogin} ` : "";
+                const body = [
+                    "## CodeTurtle Reply",
+                    "",
+                    `${mentionPrefix}${commandResult.body}`,
+                    ...commandHumorLines,
+                ].join("\n");
+
+                if (event.data?.source === "review_comment") {
+                    await octokit.rest.pulls.createReplyForReviewComment({
+                        owner,
+                        repo,
+                        pull_number: prNumber,
+                        comment_id: commentId,
+                        body,
+                    });
+                } else {
+                    await octokit.rest.issues.createComment({
+                        owner,
+                        repo,
+                        issue_number: prNumber,
+                        body,
+                    });
+                }
 
         l.info("Handled @codeturtle PR creation command", {
           owner,
@@ -1036,75 +1163,306 @@ export const processPRMention = inngest.createFunction(
         return;
       }
 
-      const mentionTone = /thanks|thank you|love|great|awesome|nice|helpful/i.test(userPrompt)
-        ? "positive"
-        : /lol|lmao|haha|funny|joke/i.test(userPrompt)
-        ? "funny"
-        : /stupid|idiot|useless|bad bot|hate|worst|shit|sucks|dont like|don't like/i.test(userPrompt)
-        ? "frustrated"
-        : "neutral";
-
-      const fallbackResponseByTone: Record<string, string> = {
-        positive: "Appreciate you. If you want, I can re-check specific files before you merge.",
-        funny: "Fair one. Drop the exact file or comment thread and I will focus there.",
-        frustrated: "Fair feedback. Tell me the top 1-2 points you disagree with and I will re-check those first.",
-        neutral: "Got you. Share what part you want me to focus on and I will help directly.",
-      };
-
+      // Only respond to specific commands, otherwise use AI for casual response
+      const lowerPrompt = userPrompt.toLowerCase().trim();
+      
+      // Check for specific commands first
+      const lower = userPrompt.toLowerCase();
+      const isDiagramCommand = /diagram|mermaid|flowchart|chart|visual|daigram|generate|visualize/i.test(lower);
+      const isMemeCommand = /meme|gif|funny|haha|lol/i.test(lower);
+      const isIssuesCommand = /issues|problems|bugs|errors|what.*wrong|what.*problem|list.*issues/i.test(lower);
+      const isSummaryCommand = /summary|overview|what.*do|explain.*pr/i.test(lower);
+      const isReviewCommand = /review|check|analyze|re-?check/i.test(lower);
+      
+      const mentionPrefix = senderLogin ? `@${senderLogin} ` : "";
       let responseText = "";
-      try {
-        const { text } = await generateText({
-          model: google("gemini-2.5-flash"),
-          system:
-            `You are CodeTurtle, an AI PR assistant. Match this tone: ${mentionTone}. ${getMentionModesInstruction(behaviorSettings.reviewModes)} Keep it casual, short (2-4 lines), and actionable. Avoid corporate wording.`,
-          prompt: [
-            `Repository: ${owner}/${repo}`,
-            `PR: #${prNumber}`,
-            `User message: ${userPrompt}`,
-            behaviorSettings.customPrompt
-              ? `Repository custom instruction: ${behaviorSettings.customPrompt}`
-              : "",
-          ]
-            .filter(Boolean)
-            .join("\n"),
-          temperature: 0.4,
-          maxOutputTokens: 300,
+      let diagramCode = "";
+      
+// Track if this is an explicit command vs casual chat
+      const isExplicitCommand = isMemeCommand || isDiagramCommand || isIssuesCommand || isSummaryCommand || isReviewCommand;
+      
+      if (isMemeCommand) {
+        // Context-aware meme selection based on actual meaning
+        const lower = userPrompt.toLowerCase();
+        
+        // Map conversation to right meme scenario
+        // success-clean = happy, celebratory, friendly (greetings, thanks, funny)
+        // success-warning = light humor, friendly tease (curious, working)
+        // success-critical = sympathetic, understanding (problems, confusion)
+        
+        let scenario: "success-clean" | "success-warning" | "success-critical" = "success-warning";
+        
+        // Greetings first - friendly
+        if (/sup|hey|hello|hi|yo|wassup|what's up/i.test(lower)) {
+          scenario = "success-clean"; // friendly greeting
+        } else if (/love|love you|love it/i.test(lower)) {
+          scenario = "success-clean"; // heartfelt
+        } else if (/thanks|thank you|appreciate/i.test(lower)) {
+          scenario = "success-clean"; // grateful
+        } else if (/good job|nice|awesome|cool|great|amazing/i.test(lower)) {
+          scenario = "success-clean"; // positive
+        } else if (/funny|haha|lol|rofl|lmao|joke/i.test(lower)) {
+          scenario = "success-clean"; // laughing
+        } else if (/confused|don't get|don't understand|wait what/i.test(lower)) {
+          scenario = "success-critical"; // puzzled/confused
+        } else if (/what\?|why|how|i don't know/i.test(lower)) {
+          scenario = "success-warning"; // curious
+        } else if (/problem|issue|bug|error|wrong|broken|bad|shit/i.test(lower)) {
+          scenario = "success-critical"; // empathetic
+        } else if (/haha|😂|🤣/i.test(lower)) {
+          scenario = "success-clean"; // reacting to humor
+        } else if (/lol/i.test(lower)) {
+          scenario = "success-clean"; // laughing
+        }
+        
+        const memeHumor = await getHumorLines(
+          scenario,
+          undefined,
+          { enabled: true, dedupeKey: `meme-${Date.now()}` },
+        );
+        responseText = memeHumor.length > 0 ? memeHumor.join("\n").replace("\n\n", "\n") : "Here's a meme for you! 🐢";
+      } else if (isDiagramCommand) {
+        // Get file list to understand the PR structure
+        const octokitForDiagram = await getPreferredOctokit(owner, repo, userId);
+        const { data: prFiles } = await octokitForDiagram.rest.pulls.listFiles({
+          owner, repo, pull_number: prNumber,
         });
-        responseText = text.trim();
-      } catch (err) {
-        l.warn("Mention response generation failed; using fallback", {
-          owner,
-          repo,
-          prNumber,
-          commentId,
-          error: err instanceof Error ? err.message : "Unknown error",
+        
+        const addedFiles = prFiles.filter(f => f.status === "added").map(f => f.filename);
+        const modifiedFiles = prFiles.filter(f => f.status === "modified").map(f => f.filename);
+        const allFiles = [...addedFiles, ...modifiedFiles];
+        
+        // Categorize files
+        const pages = allFiles.filter(f => /page\.tsx$|page\.jsx$|\/page\//.test(f));
+        const components = allFiles.filter(f => /components?\//i.test(f) || /_components\//i.test(f));
+        const hooks = allFiles.filter(f => /hooks?\//i.test(f));
+        const api = allFiles.filter(f => /api\//i.test(f) || /route\.(ts|js)$/.test(f));
+        const lib = allFiles.filter(f => /lib\//i.test(f) || /utils\//i.test(f));
+        const actions = allFiles.filter(f => /actions\//i.test(f) || /\.actions\./i.test(f));
+        
+        // Build a SEQUENCE diagram
+        let diagram = "sequenceDiagram\n";
+        diagram += "    autonumber\n";
+        diagram += "    participant U as User\n";
+        
+        // Add participants based on what's in the PR
+        const participants: string[] = [];
+        if (pages.length > 0) {
+          diagram += "    participant FE as Frontend\n";
+          participants.push("FE");
+        }
+        if (components.length > 0) {
+          diagram += "    participant UI as UI Components\n";
+          participants.push("UI");
+        }
+        if (hooks.length > 0) {
+          diagram += "    participant Hook as Hooks\n";
+          participants.push("Hook");
+        }
+        if (api.length > 0) {
+          diagram += "    participant API as API\n";
+          participants.push("API");
+        }
+        if (lib.length > 0) {
+          diagram += "    participant SVC as Services\n";
+          participants.push("SVC");
+        }
+        diagram += "    participant DB as Database\n";
+        
+        // Build actual flow lines based on what's in the PR
+        diagram += "\n    %% User action\n";
+        diagram += "    U->>FE: interacts\n";
+        
+        if (pages.length > 0 && components.length > 0) {
+          diagram += "    FE->>UI: renders components\n";
+        }
+        
+        if (components.length > 0 && hooks.length > 0) {
+          diagram += "    UI->>Hook: calls hook\n";
+          diagram += "    Hook->>Hook: processes data\n";
+        }
+        
+        if ((components.length > 0 || hooks.length > 0) && api.length > 0) {
+          const from = hooks.length > 0 ? "Hook" : "UI";
+          diagram += `    ${from}->>API: API request\n`;
+          diagram += "    API->>SVC: business logic\n";
+        } else if (pages.length > 0 && api.length > 0) {
+          diagram += "    FE->>API: API request\n";
+          diagram += "    API->>SVC: business logic\n";
+        }
+        
+        if (api.length > 0 || lib.length > 0) {
+          diagram += "    SVC->>DB: query/save\n";
+          diagram += "    DB-->>SVC: result\n";
+          diagram += "    SVC-->>API: response\n";
+        }
+        
+        if (api.length > 0) {
+          diagram += "    API-->>FE: JSON response\n";
+        } else if (lib.length > 0 && hooks.length > 0) {
+          diagram += "    SVC-->>Hook: data\n";
+          diagram += "    Hook-->>UI: state update\n";
+        }
+        
+        if (hooks.length > 0 && components.length > 0) {
+          diagram += "    UI-->>U: UI updates\n";
+        } else if (pages.length > 0) {
+          diagram += "    FE-->>U: renders page\n";
+        }
+        
+        // Add notes about what changed
+        const changes: string[] = [];
+        if (pages.length > 0) changes.push(`${pages.length} page(s)`);
+        if (components.length > 0) changes.push(`${components.length} component(s)`);
+        if (api.length > 0) changes.push(`${api.length} endpoint(s)`);
+        
+        responseText = `**${allFiles.length} files changed**\n\nHere's how data flows in this PR:\n\n\`\`\`mermaid\n${diagram}\`\`\`\n\nChanges: ${changes.join(", ")}`;
+      } else if (isIssuesCommand) {
+        // Get issues from stored review
+        const review = await prisma.codeReview.findFirst({
+          where: { owner, repo, prNumber, userId, status: "completed" },
+          orderBy: { createdAt: "desc" },
+          select: { files: true },
         });
+        if (review?.files && typeof review.files === "object" && "issues" in review.files) {
+          const issues = (review.files as { issues: Array<{ title: string; file: string; severity: string }> }).issues;
+          responseText = issues.length > 0 
+            ? `Found ${issues.length} issues:\n${issues.slice(0, 5).map(i => `- ${i.title} (${i.severity}) in ${i.file}`).join("\n")}${issues.length > 5 ? `\n...and ${issues.length - 5} more` : ""}`
+            : "No issues found in the latest review.";
+        } else {
+          responseText = "I don't have a completed review for this PR yet. Trigger a new review first.";
+        }
+      } else if (isSummaryCommand || isReviewCommand) {
+        // Get summary from stored review
+        const review = await prisma.codeReview.findFirst({
+          where: { owner, repo, prNumber, userId },
+          orderBy: { createdAt: "desc" },
+          select: { summary: true, files: true },
+        });
+        if (review?.summary) {
+          responseText = review.summary;
+          if (review.files && typeof review.files === "object" && "overallScore" in review.files) {
+            const score = (review.files as { overallScore: number }).overallScore;
+            responseText = `**Score: ${score}/10**\n\n${responseText}`;
+          }
+        } else {
+          responseText = "No review available for this PR yet.";
+        }
+      } else {
+        // Handle casual questions - RESPOND TO WHAT USER SAID, NOT ABOUT PR
+        // Make it actually vary by using different responses
+        const greetings = ["Yo!", "Hey!", "What's up!", "Hi there!", "Yo yo!", "Heyo!", "Sup!", "Hi!"];
+        const responses = [
+          "What's good!", "All good here!", "Ready to roll!", "On it!", 
+          "Got you!", "Let's go!", "What's happening!", "Cool cool!"
+        ];
+        
+        // Pick randomly based on user input variation
+        const seed = userPrompt.length + userPrompt.charCodeAt(0);
+        const greeting = greetings[seed % greetings.length];
+        
+        if (/hey|hi|hello|sup|yo/i.test(userPrompt)) {
+          responseText = greeting;
+        } else {
+          const response = responses[seed % responses.length];
+          responseText = response;
+        }
       }
 
-      const mentionScenario = mentionTone === "positive"
-        ? "success-clean"
-        : mentionTone === "frustrated"
-        ? "success-critical"
-        : "success-warning";
-      const humorLines = await getHumorLines(
-        mentionScenario,
-        undefined,
-        { enabled: behaviorSettings.memesEnabled, dedupeKey: humorDedupeKey },
-      );
+            // Contextual memes ONLY for explicit commands - not casual chat
+      let humorLines: string[] = [];
+      
+      if (behaviorSettings.memesEnabled && isExplicitCommand) {
+        const lower = userPrompt.toLowerCase();
+        
+        // Map conversation to meme categories based on keywords
+        let scenario: HumorScenario = "success-warning";
+        
+        // user says love you / affectionate - map to success-clean for "celebrat" keyword
+        if (/love.*you|i love|love u|❤️|iloveyou/i.test(lower)) {
+          scenario = "success-clean"; // matches "celebrat" in useWhen
+        }
+        // user gives compliment / thanks / appreciation
+        else if (/thanks|thank you|great job|awesome|amazing|good job|well done|nice work|you rock/i.test(lower)) {
+          scenario = "success-clean"; // matches "celebrat" in useWhen
+        }
+        // user is sad / upset / disappointed
+        else if (/sad|upset|disappointed|😢|crying|feeling.*down|not good|feeling.*bad/i.test(lower)) {
+          scenario = "success-critical"; // matches "sad" in keywords
+        }
+        // user says hi / hello / hey
+        else if (/^(hi|hello|hey|sup|yo|what'?s up|howdy|how.?s it|tgid)/i.test(lower)) {
+          scenario = "success-clean"; // matches "celebrat" for friendly greeting
+        }
+        // user is happy / excited / celebrating
+        else if (/happy|excited|woohoo|yay|celebrat|🎉|good news|awesome sauce/i.test(lower)) {
+          scenario = "success-clean"; // matches "celebrat", "happy"
+        }
+        // user makes joke / is being funny
+        else if (/funny|haha|lol|lmao|😂|rofl|🤣|joke|meme|got me/i.test(lower)) {
+          scenario = "success-warning"; // matches "funny" in keywords
+        }
+        // user insults CodeTurtle / is rude
+        else if (/stupid|dumb|idiot|garbage|trash|suck|worst|useless|shit.*bot|damn.*bot/i.test(lower)) {
+          scenario = "success-critical"; // matches "bad", "poor"
+        }
+        // user says something useful / insightful
+        else if (/good point|interesting|insightful|smart|that'?s true|valid point|you'?re right/i.test(lower)) {
+          scenario = "success-clean"; // matches "success" keyword
+        }
+        // user is confused / doesn't understand
+        else if (/confused|don'?t get|what\?|huh|unclear|doesn'?t make|i don'?t understand/i.test(lower)) {
+          scenario = "in-progress"; // matches "analyz" for need to analyze more
+        }
+        // failure-auth: auth, token, credential
+        else if (/auth|token|credential|login|oauth|github.*connect|reconnect/i.test(lower)) {
+          scenario = "failure-auth";
+        }
+        // failure-model: model, provider, endpoint
+        else if (/model|provider|endpoint|api.*key|api.*fail|gemini|openai|anthropic/i.test(lower)) {
+          scenario = "failure-model";
+        }
+        // failure-rate-limit
+        else if (/rate.*limit|too.*many|quota.*exceed|too.*fast|throttle/i.test(lower)) {
+          scenario = "failure-rate-limit";
+        }
+        // quota-limit
+        else if (/quota|wallet|plan.*limit|no.*credits|run.*out.*credit/i.test(lower)) {
+          scenario = "quota-limit";
+        }
+        // failure-generic: fail, error
+        else if (/fail|error|broke|crash|broken|oops|something.*wrong/i.test(lower)) {
+          scenario = "failure-generic";
+        }
+        
+        humorLines = await getHumorLines(
+          scenario,
+          undefined,
+          { enabled: true, dedupeKey: `context-${Date.now()}` },
+        );
+      }
 
       const body = [
-        "## CodeTurtle Reply",
-        "",
-        responseText || fallbackResponseByTone[mentionTone],
+        `${mentionPrefix}${responseText}`,
         ...humorLines,
       ].join("\n");
 
-      await octokit.rest.issues.createComment({
-        owner,
-        repo,
-        issue_number: prNumber,
-        body,
-      });
+            if (event.data?.source === "review_comment") {
+                await octokit.rest.pulls.createReplyForReviewComment({
+                    owner,
+                    repo,
+                    pull_number: prNumber,
+                    comment_id: commentId,
+                    body,
+                });
+            } else {
+                await octokit.rest.issues.createComment({
+                    owner,
+                    repo,
+                    issue_number: prNumber,
+                    body,
+                });
+            }
 
       l.info("Posted @codeturtle mention reply", { owner, repo, prNumber, commentId, senderLogin });
     });

@@ -238,6 +238,7 @@ export async function POST(req: Request) {
             commentId,
             commentBody,
             senderLogin,
+            source: "issue_comment",
           },
         });
         l.info("Enqueued @codeturtle mention response", { owner, repo, prNumber, commentId, action });
@@ -292,6 +293,7 @@ export async function POST(req: Request) {
             commentId,
             commentBody,
             senderLogin,
+            source: "review_comment",
           },
         });
         l.info("Enqueued @codeturtle mention response from review comment", { owner, repo, prNumber, commentId, action });
@@ -346,6 +348,7 @@ export async function POST(req: Request) {
             commentId: reviewId,
             commentBody: reviewBody,
             senderLogin,
+            source: "review_body",
           },
         });
         l.info("Enqueued @codeturtle mention response from pull_request_review", { owner, repo, prNumber, reviewId, action });

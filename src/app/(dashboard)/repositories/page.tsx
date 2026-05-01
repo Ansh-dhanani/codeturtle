@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
@@ -35,6 +36,7 @@ import {
   normalizeRepoReviewModes,
   type RepoReviewStyle,
 } from '@/module/repository/lib/settings'
+import { AI_PROVIDERS } from '@/lib/ai-providers'
 
 interface Repository {
   id: number
@@ -52,6 +54,8 @@ interface Repository {
   reviewModes?: string[]
   memesEnabled?: boolean
   customPrompt?: string | null
+  aiProvider?: string | null
+  aiModel?: string | null
   [key: string]: unknown
 }
 
@@ -59,6 +63,8 @@ type RepoDraft = {
   reviewModes: RepoReviewStyle[]
   memesEnabled: boolean
   customPrompt: string
+  aiProvider: string | null
+  aiModel: string | null
 }
 
 type RepoDraftPatch = Partial<RepoDraft>
@@ -107,13 +113,15 @@ const Page = () => {
     },
   })
 
-  const saveSettingsMutation = useMutation({
+const saveSettingsMutation = useMutation({
     mutationFn: async (payload: { repositoryId: string; draft: RepoDraft }) =>
       updateRepositoryBehaviorSettings({
         repositoryId: payload.repositoryId,
         reviewModes: payload.draft.reviewModes,
         memesEnabled: payload.draft.memesEnabled,
         customPrompt: payload.draft.customPrompt,
+        aiProvider: payload.draft.aiProvider,
+        aiModel: payload.draft.aiModel,
       }),
     onSuccess: () => {
       toast.success('Repository settings saved')
@@ -188,12 +196,14 @@ const Page = () => {
 
   const getDraftKey = (repo: Repository): string => repo.connectedRepositoryId || String(repo.id)
 
-  const getDraft = (repo: Repository): RepoDraft => {
+const getDraft = (repo: Repository): RepoDraft => {
     const key = getDraftKey(repo)
     const base: RepoDraft = {
       reviewModes: normalizeRepoReviewModes(repo.reviewModes || repo.reviewStyle),
       memesEnabled: repo.memesEnabled ?? true,
       customPrompt: repo.customPrompt || '',
+      aiProvider: repo.aiProvider || null,
+      aiModel: repo.aiModel || null,
     }
     return {
       ...base,
@@ -201,7 +211,7 @@ const Page = () => {
     }
   }
 
-  const hasSettingsChanges = (repo: Repository): boolean => {
+const hasSettingsChanges = (repo: Repository): boolean => {
     if (!repo.connectedRepositoryId) return false
     const draft = getDraft(repo)
     const currentModes = normalizeRepoReviewModes(repo.reviewModes || repo.reviewStyle)
@@ -209,7 +219,9 @@ const Page = () => {
     return (
       !areModesEqual(draft.reviewModes, currentModes) ||
       draft.memesEnabled !== (repo.memesEnabled ?? true) ||
-      draft.customPrompt.trim() !== (repo.customPrompt || '').trim()
+      draft.customPrompt.trim() !== (repo.customPrompt || '').trim() ||
+      draft.aiProvider !== (repo.aiProvider || null) ||
+      draft.aiModel !== (repo.aiModel || null)
     )
   }
 
@@ -481,6 +493,62 @@ const Page = () => {
                         maxLength={2000}
                         placeholder="Example: prioritize security and migration risks for this repository."
                       />
+                    </div>
+
+                    <div className="space-y-3">
+                      <Label>AI Provider (per repository)</Label>
+                      <Select
+                        value={draft.aiProvider ?? '__default__'}
+                        onValueChange={(value) => {
+                          const key = getDraftKey(repo)
+                          setDrafts((prev) => ({
+                            ...prev,
+                            [key]: {
+                              ...(prev[key] || {}),
+                              aiProvider: value === '__default__' ? null : value,
+                              aiModel: value === '__default__' ? null : (prev[key]?.aiModel || ''),
+                            },
+                          }))
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Use account default" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__default__">Use account default</SelectItem>
+                          {AI_PROVIDERS.map((p) => (
+                            <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+
+                      {draft.aiProvider && (
+                        <div className="space-y-1.5">
+                          <Label>AI Model</Label>
+                          <Select
+                            value={draft.aiModel || ''}
+                            onValueChange={(value) => {
+                              const key = getDraftKey(repo)
+                              setDrafts((prev) => ({
+                                ...prev,
+                                [key]: {
+                                  ...(prev[key] || {}),
+                                  aiModel: value,
+                                },
+                              }))
+                            }}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select model" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(AI_PROVIDERS.find((p) => p.id === draft.aiProvider)?.models || []).map((m) => (
+                                <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex justify-end">

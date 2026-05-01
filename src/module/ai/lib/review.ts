@@ -1,4 +1,4 @@
-import { generateObject, type LanguageModel } from "ai";
+import { generateObject, generateText, type LanguageModel } from "ai";
 import { google } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
@@ -38,6 +38,7 @@ const CodeReviewSchema = z.object({
   suggestions: z.array(ReviewSuggestionSchema),
   positives: z.array(z.string()),
   architectureNotes: z.string().optional(),
+  diagram: z.string().optional(),
 });
 
 type CodeReview = z.infer<typeof CodeReviewSchema>;
@@ -49,6 +50,33 @@ type CodeReviewWithReviewer = CodeReview & {
 const REVIEW_MAX_TOKENS = 4096;
 const REVIEW_LOW_CREDIT_MAX_TOKENS = 1200;
 const REVIEW_FILE_CONTEXT_LIMIT = 8;
+const REVIEW_EXTRA_CONTEXT_LIMIT = 4;
+const MAX_DIFF_CHARS = 24000;
+const MAX_RAG_CHARS = 8000;
+const EST_CHAR_PER_TOKEN = 3.5;
+
+const MODEL_CONTEXT_TOKENS: Record<string, number> = {
+  "gemini-2.5-flash": 1048576,
+  "gemini-2.5-pro": 1048576,
+  "gemini-2.0-flash": 1048576,
+  "gpt-4o": 128000,
+  "gpt-4o-mini": 128000,
+  "o3-mini": 200000,
+  "claude-sonnet-4-20250514": 200000,
+  "claude-haiku-3-5-20241022": 200000,
+  "llama-3.3-70b-versatile": 32768,
+  "llama-3.1-8b-instant": 32768,
+  "qwen/qwen3-coder:free": 32768,
+  "moonshotai/kimi-k2": 163840,
+  "nvidia/nemotron-3-nano-30b-a3b:free": 163840,
+  "minimax/minimax-m2.5:free": 163840,
+  "openai/gpt-oss-120b:free": 163840,
+  "openai/gpt-oss-20b:free": 163840,
+  "qwen/qwen3.6-plus:free": 32768,
+  "arcee-ai/trinity-mini:free": 163840,
+  "stepfun/step-3.5-flash:free": 163840,
+  "openrouter/auto": 200000,
+};
 
 const PRISMA_MAX_RETRIES = 3;
 const SEVERITY_ORDER: Record<"critical" | "warning" | "info", number> = {
@@ -262,6 +290,8 @@ function sanitizeReviewOutput(
       return `Architecture impact appears focused on: ${files.map((file) => `\`${file}\``).join(", ")}. No broad repository-wide refactor patterns were detected in this PR.`;
     })();
 
+  const diagram = review.diagram?.trim();
+
   return {
     summary: cleanedSummary,
     overallScore: boundedScore,
@@ -269,6 +299,7 @@ function sanitizeReviewOutput(
     suggestions,
     positives,
     architectureNotes,
+    diagram: diagram ? diagram.slice(0, 6000) : undefined,
   };
 }
 
@@ -358,6 +389,93 @@ Score guidelines:
 - 3-4: Needs significant improvements
 - 1-2: Major problems, rewrite needed`;
 
+const JSON_OUTPUT_INSTRUCTIONS = `You must output a single JSON object that matches the requested schema.
+Do not wrap the JSON in markdown. Do not include commentary outside JSON.
+Use double quotes for all strings and keys. Do not use trailing commas.
+If a field needs multiple lines, use \\n for newlines inside the JSON string.`;
+
+const DIAGRAM_OUTPUT_INSTRUCTIONS = `If a diagram is helpful, set the "diagram" field to Mermaid code only (no fences). Keep it small (max 10 nodes).`;
+
+function escapeControlCharsInString(value: string): string {
+  let result = "";
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < value.length; i += 1) {
+    const char = value[i];
+
+    if (!inString) {
+      if (char === '"') {
+        inString = true;
+        escaped = false;
+      }
+      result += char;
+      continue;
+    }
+
+    if (escaped) {
+      escaped = false;
+      result += char;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaped = true;
+      result += char;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = false;
+      result += char;
+      continue;
+    }
+
+    const code = char.charCodeAt(0);
+    if (code < 0x20) {
+      const hex = code.toString(16).padStart(2, "0");
+      result += `\\u00${hex}`;
+      continue;
+    }
+
+    result += char;
+  }
+
+  return result;
+}
+
+function parseReviewJson(raw: string): CodeReview {
+  let candidate: string;
+  
+  // First try to extract JSON from markdown code blocks
+  const jsonBlockMatch = raw.match(/```json\s*([\s\S]*?)\s*```/);
+  if (jsonBlockMatch) {
+    candidate = jsonBlockMatch[1].trim();
+  } else {
+    // Fall back to finding first { and last }
+    const start = raw.indexOf("{");
+    const end = raw.lastIndexOf("}");
+    if (start === -1 || end === -1 || end <= start) {
+      throw new Error(`No JSON found in response: ${raw.slice(0, 200)}`);
+    }
+    candidate = raw.slice(start, end + 1);
+  }
+  
+  // Remove any remaining markdown
+  candidate = candidate.replace(/```\w*\n?/g, '').trim();
+  
+  const sanitized = escapeControlCharsInString(candidate);
+  
+  try {
+    const parsed = JSON.parse(sanitized);
+    return CodeReviewSchema.parse(parsed);
+  } catch (parseError) {
+    console.error("Failed to parse review JSON:", parseError);
+    console.error("Candidate was:", candidate.slice(0, 500));
+    throw new Error(`Failed to parse AI response as JSON: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
+  }
+}
+
 async function getPRDiff(octokit: Octokit, owner: string, repo: string, prNumber: number): Promise<string> {
   const response = await octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
     owner,
@@ -400,13 +518,16 @@ export async function generateCodeReview(params: {
   const repositorySettings = await withPrismaRetry("load-repository-settings", () =>
     prisma.repository.findFirst({
       where: { owner, name: repo, userId },
-      select: { reviewStyle: true, customPrompt: true },
+      select: { reviewStyle: true, customPrompt: true, aiProvider: true, aiModel: true },
     }),
   );
   const reviewModes = normalizeRepoReviewModes(repositorySettings?.reviewStyle);
   const customPrompt = normalizeCustomPrompt(repositorySettings?.customPrompt, 2000);
+  const diagramAllowed = reviewModes.includes("diagram");
   const systemPrompt = [
     BASE_SYSTEM_PROMPT,
+    JSON_OUTPUT_INSTRUCTIONS,
+    diagramAllowed ? DIAGRAM_OUTPUT_INSTRUCTIONS : "Do not include a diagram field unless explicitly requested.",
     "",
     `Repository style: ${getReviewModesInstruction(reviewModes)}`,
     customPrompt ? `Repository custom prompt: ${customPrompt}` : "",
@@ -414,8 +535,10 @@ export async function generateCodeReview(params: {
     .filter(Boolean)
     .join("\n");
 
-  const selectedProvider = provider || user?.aiProvider || "google";
-  const selectedModel = model || user?.aiModel || "gemini-2.5-flash";
+  const repoProvider = repositorySettings?.aiProvider || null;
+  const repoModel = repositorySettings?.aiModel || null;
+  const selectedProvider = provider || repoProvider || user?.aiProvider || "google";
+  const selectedModel = model || (repoProvider ? repoModel : null) || user?.aiModel || "gemini-2.5-flash";
   let normalizedSelectedModel = selectedModel;
   if (selectedProvider === "openrouter") {
     if (selectedModel === "moonshotai/kimi-k2:free") {
@@ -454,6 +577,19 @@ export async function generateCodeReview(params: {
     octokit = new Octokit({ auth: account.accessToken });
   }
 
+  const modelContextTokens = MODEL_CONTEXT_TOKENS[normalizedSelectedModel] || 32768;
+  const systemTokens = Math.ceil(systemPrompt.length / EST_CHAR_PER_TOKEN);
+  const outputTokens = REVIEW_MAX_TOKENS;
+  const availableInputTokens = modelContextTokens - systemTokens - outputTokens - 500;
+  const diffCharsBudget = Math.min(
+    MAX_DIFF_CHARS,
+    Math.floor(availableInputTokens * 0.6 * EST_CHAR_PER_TOKEN),
+  );
+  const ragCharsBudget = Math.min(
+    MAX_RAG_CHARS,
+    Math.floor(availableInputTokens * 0.3 * EST_CHAR_PER_TOKEN),
+  );
+
   logger.info("Fetching PR data for review", { owner, repo, prNumber });
 
   const [diff, files] = await Promise.all([
@@ -473,7 +609,7 @@ export async function generateCodeReview(params: {
     try {
       const repoRecord = await withPrismaRetry("load-repository-record", () =>
         prisma.repository.findFirst({
-          where: { owner, name: repo },
+          where: { owner, name: repo, userId },
         }),
       );
 
@@ -484,11 +620,34 @@ export async function generateCodeReview(params: {
           .slice(0, REVIEW_FILE_CONTEXT_LIMIT)
           .map((f) => normalizeFilePath(f.filename));
 
-        const queries = filesForContext.map(async (file) => {
+        const fileQueries = filesForContext.map(async (file) => {
           return queryCodebase(`Show me the code in ${file}`, repoRecord.id, 3);
         });
-        const results = await Promise.all(queries);
-        contextChunks = results.flat().map((r) => `File: ${r.path}\n${r.content}`);
+        const extraQueries = [
+          "Repository overview and architecture",
+          "Shared types, utilities, and conventions",
+          "Error handling and validation patterns",
+          "Security considerations and data access patterns",
+        ].map(async (query) => queryCodebase(query, repoRecord.id, 2));
+
+        const [fileResults, extraResults] = await Promise.all([
+          Promise.all(fileQueries),
+          Promise.all(extraQueries),
+        ]);
+
+        const flattened = [...fileResults.flat(), ...extraResults.flat()];
+        const seenPaths = new Set<string>();
+        contextChunks = flattened
+          .filter((result) => {
+            if (!result?.path || seenPaths.has(result.path)) return false;
+            seenPaths.add(result.path);
+            return true;
+          })
+          .slice(0, REVIEW_FILE_CONTEXT_LIMIT + REVIEW_EXTRA_CONTEXT_LIMIT)
+          .map((r) => {
+            const maxPerFile = Math.floor(ragCharsBudget / (REVIEW_FILE_CONTEXT_LIMIT + REVIEW_EXTRA_CONTEXT_LIMIT));
+            return `File: ${r.path}\n${r.content.slice(0, maxPerFile)}`;
+          });
       }
     } catch (err) {
       logger.warn("Failed to fetch RAG context, proceeding without it", { error: (err as Error).message });
@@ -504,7 +663,7 @@ ${contextChunks.join("\n\n---\n\n")}
 
 ## Pull Request Diff:
 \`\`\`diff
-${diff.slice(0, 50000)}
+${diff.slice(0, diffCharsBudget)}
 \`\`\`
 
 ${files.length > 0 ? `
@@ -517,13 +676,33 @@ Provide a structured review with specific issues, suggestions, and an overall sc
   logger.info("Generating AI review", { owner, repo, prNumber, contextChunks: contextChunks.length, provider: selectedProvider, model: normalizedSelectedModel });
 
   const runReviewGeneration = async (modelToUse: LanguageModel, maxOutputTokens = REVIEW_MAX_TOKENS) => {
-    return generateObject({
-      model: modelToUse,
-      system: systemPrompt,
-      prompt: userPrompt,
-      schema: CodeReviewSchema,
-      maxOutputTokens,
-    });
+    try {
+      return await generateObject({
+        model: modelToUse,
+        system: systemPrompt,
+        prompt: userPrompt,
+        schema: CodeReviewSchema,
+        maxOutputTokens,
+      });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Unknown error";
+      logger.warn("Structured output failed, retrying with JSON text", {
+        owner,
+        repo,
+        prNumber,
+        error: errorMessage,
+      });
+
+      const { text } = await generateText({
+        model: modelToUse,
+        system: systemPrompt,
+        prompt: userPrompt,
+        maxOutputTokens,
+      });
+
+      const object = parseReviewJson(text);
+      return { object };
+    }
   };
 
   let aiModel;
@@ -609,8 +788,57 @@ Provide a structured review with specific issues, suggestions, and an overall sc
     const providerReturnedError = /provider returned error|ai_apicallerror/i.test(errorMessage);
     const missingProviderKeyError = /api key is missing|loadapikeyerror|pass it using the 'apiKey' parameter/i.test(errorMessage);
     const modelLifecycleError = /decommissioned|no longer supported|unknown model|model .* not found|unsupported model/i.test(errorMessage);
+    const outputParseError = /no object generated|json parsing failed|could not parse the response|bad control character/i.test(errorMessage);
+    const inputOverflowError = /input.*too.*(long|large)|context.*(length|overflow|exceed)|request.*too.*large|maximum context length|token.*limit/i.test(errorMessage);
 
-    if (selectedProvider === "openrouter" && (noEndpointError || insufficientCreditsError || providerReturnedError)) {
+    if (inputOverflowError) {
+      logger.warn("Input overflow detected, retrying with Google Gemini and reduced input", {
+        owner, repo, prNumber, selectedProvider, selectedModel: reviewerModel,
+        error: errorMessage,
+      });
+      reviewerProvider = "google";
+      reviewerModel = "gemini-2.5-flash";
+      const reducedDiffBudget = Math.floor(diffCharsBudget * 0.4);
+      const reducedRagBudget = Math.floor(ragCharsBudget * 0.2);
+      const reducedPrompt = `Review this pull request in the repository ${owner}/${repo}.
+
+${contextChunks.length > 0 ? `
+## Relevant Codebase Context (truncated):
+${contextChunks.map((c) => c.slice(0, Math.floor(reducedRagBudget / contextChunks.length))).join("\n\n---\n\n")}
+` : ""}
+
+## Pull Request Diff (truncated):
+\`\`\`diff
+${diff.slice(0, reducedDiffBudget)}
+\`\`\`
+
+${files.length > 0 ? `
+## Changed Files:
+${files.map((f) => `- ${f.filename} (${f.status}, +${f.additions}/-${f.deletions})`).join("\n")}
+` : ""}
+
+Provide a structured review with specific issues, suggestions, and an overall score.`;
+      const reducedRun = async (modelToUse: LanguageModel, maxOutputTokens = REVIEW_MAX_TOKENS) => {
+        try {
+          return await generateObject({ model: modelToUse, system: systemPrompt, prompt: reducedPrompt, schema: CodeReviewSchema, maxOutputTokens });
+        } catch (err2) {
+          const { text } = await generateText({ model: modelToUse, system: systemPrompt, prompt: reducedPrompt, maxOutputTokens });
+          return { object: parseReviewJson(text) };
+        }
+      };
+      ({ object } = await reducedRun(google(reviewerModel), REVIEW_MAX_TOKENS));
+    } else if (outputParseError) {
+      logger.warn("Model output parse failed; retrying with Google Gemini", {
+        owner,
+        repo,
+        prNumber,
+        selectedProvider,
+        selectedModel: reviewerModel,
+      });
+      reviewerProvider = "google";
+      reviewerModel = "gemini-2.5-flash";
+      ({ object } = await runReviewGeneration(google(reviewerModel), REVIEW_MAX_TOKENS));
+    } else if (selectedProvider === "openrouter" && (noEndpointError || insufficientCreditsError || providerReturnedError)) {
       logger.warn("OpenRouter review failed; attempting resilient fallback path", {
         owner,
         repo,

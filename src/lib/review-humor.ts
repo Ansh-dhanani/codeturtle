@@ -31,6 +31,8 @@ type HumorContext = {
 type HumorOptions = {
   enabled?: boolean;
   dedupeKey?: string;
+  reuseLastMeme?: boolean;
+  reuseLastQuip?: boolean;
 };
 
 type MemeCandidate = {
@@ -299,6 +301,16 @@ async function pickMemeUrl(
   scenario: HumorScenario,
   options?: HumorOptions,
 ): Promise<string | undefined> {
+  if (options?.reuseLastMeme && options.dedupeKey) {
+    const cachedUrl = recentMemeByKey.get(options.dedupeKey);
+    if (cachedUrl) {
+      const resolved = await resolveRenderableMemeUrl(cachedUrl);
+      if (resolved) {
+        return resolved;
+      }
+    }
+  }
+
   const configured = memes[topic];
   if (!configured || configured.length === 0) return undefined;
 
@@ -345,6 +357,13 @@ function pickQuip(scenario: HumorScenario, context?: HumorContext, options?: Hum
   const lines = QUIPS[scenario];
   if (!lines || lines.length === 0) return "CodeTurtle is reviewing with extra vibes.";
 
+  if (options?.reuseLastQuip && options.dedupeKey) {
+    const cachedQuip = recentQuipByKey.get(options.dedupeKey);
+    if (cachedQuip) {
+      return cachedQuip;
+    }
+  }
+
   const lastQuip = options?.dedupeKey ? recentQuipByKey.get(options.dedupeKey) : undefined;
   const candidateLines =
     lastQuip && lines.length > 1
@@ -387,12 +406,15 @@ export async function getHumorLines(
 
   const lines = [
     "",
-    "### Vibe Check",
-    quip,
   ];
 
+  // Add quip before meme so there's context
+  if (quip) {
+    lines.push(quip);
+  }
+
   if (gifUrl) {
-    lines.push(`![meme-${topic}](${gifUrl})`);
+    lines.push(`![meme](${gifUrl})`);
   }
 
   return lines;

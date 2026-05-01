@@ -73,7 +73,7 @@ function getSingleReviewStyleInstruction(style: RepoReviewStyle): string {
   if (style === "funny") {
     return "Use a light, playful tone while preserving technical accuracy and clear action items.";
   }
-  return "Add simple ASCII diagrams only when they clarify architecture, data flow, or control flow. Avoid overusing diagrams.";
+  return "Include a Mermaid diagram in ```mermaid``` fences only when it clarifies architecture, data flow, or control flow. Keep it small (max 10 nodes) and avoid overusing diagrams.";
 }
 
 function getSingleMentionStyleInstruction(style: RepoReviewStyle): string {

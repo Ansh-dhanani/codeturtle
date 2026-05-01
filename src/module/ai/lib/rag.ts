@@ -4,6 +4,7 @@ import { google } from "@ai-sdk/google";
 
 const BATCH_SIZE = 100;
 const MAX_CONTENT_LENGTH = 8000;
+const EMBEDDING_BATCH_SIZE = 10; // Batch embeddings for faster processing
 
 function getPineconeIndex() {
   return pineconeClient.index(pineconeIndexName);
@@ -11,10 +12,28 @@ function getPineconeIndex() {
 
 export async function generateEmbeddings(text: string) {
   const { embedding } = await embed({
-    model: google.textEmbeddingModel("text-embedding-004"),
+    model: google.textEmbeddingModel("gemini-embedding-001"),
     value: text,
   });
   return embedding;
+}
+
+async function generateEmbeddingsBatch(texts: string[]): Promise<(number[] | null)[]> {
+  const results: (number[] | null)[] = [];
+  for (let i = 0; i < texts.length; i += EMBEDDING_BATCH_SIZE) {
+    const batch = texts.slice(i, i + EMBEDDING_BATCH_SIZE);
+    const batchPromises = batch.map(async (text) => {
+      try {
+        return await generateEmbeddings(text);
+      } catch (error) {
+        console.error(`Error generating embedding for batch slice:`, error);
+        return null;
+      }
+    });
+    const batchResults = await Promise.all(batchPromises);
+    results.push(...batchResults);
+  }
+  return results;
 }
 
 export async function indexCodebase(
@@ -28,22 +47,33 @@ export async function indexCodebase(
     metadata: { repoId: string; path: string; content: string };
   }> = [];
 
-  for (const file of files) {
+  // Prepare all content first
+  const fileContents = files.map((file) => {
     const content = `file ${file.path}:\n${file.content}`;
-    const truncatedContent = content.slice(0, MAX_CONTENT_LENGTH);
-    try {
-      const embedding = await generateEmbeddings(truncatedContent);
+    return content.slice(0, MAX_CONTENT_LENGTH);
+  });
+
+  console.log(`Generating embeddings for ${fileContents.length} files...`);
+
+  // Generate embeddings in batches
+  const embeddings = await generateEmbeddingsBatch(fileContents);
+
+  // Build vectors from embeddings
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    const embedding = embeddings[i];
+    if (embedding) {
       vectors.push({
         id: `${repoId}-${file.path.replace(/\//g, "-")}`,
         values: embedding,
         metadata: {
           repoId,
           path: file.path,
-          content: truncatedContent,
+          content: fileContents[i],
         },
       });
-    } catch (error) {
-      console.error(`Error generating embedding for file ${file.path}:`, error);
+    } else {
+      console.warn(`Skipping file ${file.path} due to embedding failure`);
     }
   }
 

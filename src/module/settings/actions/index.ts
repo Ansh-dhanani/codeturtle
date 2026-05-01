@@ -144,6 +144,8 @@ export async function getConnectedRepositories() {
         reviewStyle: true,
         memesEnabled: true,
         customPrompt: true,
+        aiProvider: true,
+        aiModel: true,
         createdAt: true,
       },
       orderBy: { createdAt: "desc" },
@@ -241,6 +243,8 @@ export async function updateRepositoryBehaviorSettings(data: {
   reviewModes?: RepoReviewStyle[];
   memesEnabled: boolean;
   customPrompt?: string | null;
+  aiProvider?: string | null;
+  aiModel?: string | null;
 }) {
   try {
     const session = await auth.api.getSession({
@@ -264,6 +268,21 @@ export async function updateRepositoryBehaviorSettings(data: {
 
     const customPrompt = normalizeCustomPrompt(data.customPrompt, 2000);
 
+    const provider = data.aiProvider?.trim() || null;
+    const model = data.aiModel?.trim() || null;
+    const providerConfig = provider ? AI_PROVIDERS.find((p) => p.id === provider) : null;
+    const modelConfig = providerConfig && model
+      ? providerConfig.models.find((m) => m.id === model)
+      : null;
+
+    if (provider && !providerConfig) {
+      throw new Error("Invalid AI provider selection");
+    }
+
+    if (provider && model && !modelConfig) {
+      throw new Error("Invalid AI model selection");
+    }
+
     await prisma.repository.update({
       where: { id: data.repositoryId },
       data: {
@@ -272,6 +291,8 @@ export async function updateRepositoryBehaviorSettings(data: {
         ),
         memesEnabled: Boolean(data.memesEnabled),
         customPrompt,
+        aiProvider: provider,
+        aiModel: provider ? model : null,
       },
     });
 
