@@ -7,7 +7,16 @@ const MAX_CONTENT_LENGTH = 8000;
 const EMBEDDING_BATCH_SIZE = 10; // Batch embeddings for faster processing
 
 function getPineconeIndex() {
-  return pineconeClient.index(pineconeIndexName);
+  try {
+    return pineconeClient.index(pineconeIndexName);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("404") || message.includes("not found")) {
+      console.warn(`Pinecone index "${pineconeIndexName}" not found - skipping RAG`);
+      return null;
+    }
+    throw error;
+  }
 }
 
 export async function generateEmbeddings(text: string) {
@@ -41,6 +50,10 @@ export async function indexCodebase(
   files: { path: string; content: string }[],
 ) {
   const index = getPineconeIndex();
+  if (!index) {
+    console.warn("Pinecone index unavailable - skipping indexing");
+    return;
+  }
   const vectors: Array<{
     id: string;
     values: number[];
@@ -93,6 +106,10 @@ export async function indexCodebase(
 
 export async function queryCodebase(query: string, repoId?: string, topK: number = 10) {
   const index = getPineconeIndex();
+  if (!index) {
+    console.warn("Pinecone index unavailable - skipping RAG query");
+    return [];
+  }
   const embedding = await generateEmbeddings(query);
 
   const filter = repoId ? { repoId } : undefined;
@@ -114,6 +131,10 @@ export async function queryCodebase(query: string, repoId?: string, topK: number
 
 export async function deleteRepoVectors(repoId: string) {
   const index = getPineconeIndex();
+  if (!index) {
+    console.warn("Pinecone index unavailable - skipping delete");
+    return;
+  }
   await index.deleteMany({ filter: { repoId } });
   console.log(`Deleted vectors for repo ${repoId}`);
 }

@@ -463,7 +463,7 @@ async ({ event, step }) => {
             where: { owner, name: repo, userId },
             data: { updatedAt: new Date() },
         });
-        l.info("Repository indexed successfully", { owner, repo, userId, indexed: result.indexed });
+        l.info("Repository indexed successfully", { owner, repo, userId });
     })
 });
 
