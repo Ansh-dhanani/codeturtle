@@ -18,7 +18,16 @@ const ReviewIssueSchema = z.object({
   title: z.string().default("Issue"),
   description: z.string().default("No description provided."),
   file: z.string().default("unknown"),
-  severity: z.enum(["critical", "warning", "info"]).default("warning"),
+  severity: z.preprocess(
+    (val) => {
+      if (typeof val !== "string") return "warning";
+      const v = val.toLowerCase();
+      if (v === "critical" || v === "error" || v === "high" || v === "severe") return "critical";
+      if (v === "warning" || v === "warn" || v === "medium" || v === "moderate") return "warning";
+      return "info";
+    },
+    z.enum(["critical", "warning", "info"]),
+  ),
   line: z.union([z.number(), z.string()]).optional().transform(v => typeof v === "string" ? parseInt(v, 10) || 0 : v),
   suggestion: z.string().default("No suggestion provided."),
 }).transform((data) => ({
@@ -26,7 +35,6 @@ const ReviewIssueSchema = z.object({
   title: data.title || "Issue",
   description: data.description || "No description provided.",
   file: data.file || "unknown",
-  severity: ["critical", "warning", "info"].includes(data.severity) ? data.severity : "warning",
   suggestion: data.suggestion || "No suggestion provided.",
 }));
 
@@ -413,7 +421,16 @@ Do not wrap the JSON in markdown. Do not include commentary outside JSON.
 Use double quotes for all strings and keys. Do not use trailing commas.
 If a field needs multiple lines, use \\n for newlines inside the JSON string.`;
 
-const DIAGRAM_OUTPUT_INSTRUCTIONS = `If a diagram is helpful, set the "diagram" field to Mermaid code only (no fences). Keep it small (max 10 nodes).`;
+const DIAGRAM_OUTPUT_INSTRUCTIONS = `Always populate the "diagram" field with a Mermaid diagram that maps the architecture, data flow, or control flow of the changed code.
+Choose the most appropriate diagram type:
+- flowchart TD: component trees, module dependencies, call graphs
+- sequenceDiagram: request/response chains, API calls, async flows
+Rules:
+- Output raw Mermaid syntax only — no code fences, no explanation text
+- Max 12 nodes; labels ≤4 words using real names from the diff
+- Only show components that are directly touched by the changed files
+- Every arrow must represent actual data or control flow, not just file proximity
+- If the diff is small, prefer depth over breadth — trace one key flow end-to-end`;
 
 function escapeControlCharsInString(value: string): string {
   let result = "";
@@ -542,11 +559,11 @@ export async function generateCodeReview(params: {
   );
   const reviewModes = normalizeRepoReviewModes(repositorySettings?.reviewStyle);
   const customPrompt = normalizeCustomPrompt(repositorySettings?.customPrompt, 2000);
-  const diagramAllowed = reviewModes.includes("diagram");
+  const diagramAllowed = true;
   const systemPrompt = [
     BASE_SYSTEM_PROMPT,
     JSON_OUTPUT_INSTRUCTIONS,
-    diagramAllowed ? DIAGRAM_OUTPUT_INSTRUCTIONS : "Do not include a diagram field unless explicitly requested.",
+    DIAGRAM_OUTPUT_INSTRUCTIONS,
     "",
     `Repository style: ${getReviewModesInstruction(reviewModes)}`,
     customPrompt ? `Repository custom prompt: ${customPrompt}` : "",
@@ -557,7 +574,7 @@ export async function generateCodeReview(params: {
   const repoProvider = repositorySettings?.aiProvider || null;
   const repoModel = repositorySettings?.aiModel || null;
   const selectedProvider = provider || repoProvider || user?.aiProvider || "google";
-  const selectedModel = model || (repoProvider ? repoModel : null) || user?.aiModel || "gemini-2.5-flash";
+  const selectedModel = (model || (repoProvider ? repoModel : null) || user?.aiModel || "gemini-2.5-flash") as string;
   let normalizedSelectedModel = selectedModel;
   if (selectedProvider === "openrouter") {
     if (selectedModel === "moonshotai/kimi-k2:free") {
@@ -807,7 +824,7 @@ Provide a structured review with specific issues, suggestions, and an overall sc
     const providerReturnedError = /provider returned error|ai_apicallerror/i.test(errorMessage);
     const missingProviderKeyError = /api key is missing|loadapikeyerror|pass it using the 'apiKey' parameter/i.test(errorMessage);
     const modelLifecycleError = /decommissioned|no longer supported|unknown model|model .* not found|unsupported model/i.test(errorMessage);
-    const outputParseError = /no object generated|json parsing failed|could not parse the response|bad control character/i.test(errorMessage);
+    const outputParseError = /no object generated|json parsing failed|could not parse the response|bad control character|failed to parse ai response|no json found in response/i.test(errorMessage);
     const inputOverflowError = /input.*too.*(long|large)|context.*(length|overflow|exceed)|request.*too.*large|maximum context length|token.*limit/i.test(errorMessage);
 
     if (inputOverflowError) {
@@ -1168,13 +1185,22 @@ ${content.slice(0, 20000)}
 
 Provide a structured review with specific issues, suggestions, and an overall score.`;
 
-  const { object } = await generateObject({
-    model: google("gemini-2.5-flash"),
-    system: BASE_SYSTEM_PROMPT,
-    prompt: userPrompt,
-    schema: CodeReviewSchema,
-    maxOutputTokens: REVIEW_MAX_TOKENS,
-  });
-
-  return object;
+  try {
+    const { object } = await generateObject({
+      model: google("gemini-2.5-flash"),
+      system: BASE_SYSTEM_PROMPT,
+      prompt: userPrompt,
+      schema: CodeReviewSchema,
+      maxOutputTokens: REVIEW_MAX_TOKENS,
+    });
+    return object;
+  } catch {
+    const { text } = await generateText({
+      model: google("gemini-2.5-flash"),
+      system: `${BASE_SYSTEM_PROMPT}\n${JSON_OUTPUT_INSTRUCTIONS}`,
+      prompt: userPrompt,
+      maxOutputTokens: REVIEW_MAX_TOKENS,
+    });
+    return parseReviewJson(text);
+  }
 }

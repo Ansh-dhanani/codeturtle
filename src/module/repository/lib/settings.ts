@@ -16,7 +16,7 @@ export type RepoBehaviorSettings = {
 };
 
 export const DEFAULT_REPO_BEHAVIOR_SETTINGS: RepoBehaviorSettings = {
-  reviewModes: ["balanced"],
+  reviewModes: ["balanced", "diagram"],
   reviewStyle: "balanced",
   memesEnabled: true,
   customPrompt: null,
@@ -41,11 +41,18 @@ export function normalizeRepoReviewModes(value?: string | string[] | null): Repo
   }
 
   if (deduped.length === 0) {
-    return ["balanced"];
+    return ["balanced", "diagram"];
   }
 
-  if (deduped.includes("balanced") && deduped.length > 1) {
+  // Strip "balanced" only when combined with actual style modes (not diagram)
+  const styleModes = deduped.filter((m) => m !== "balanced" && m !== "diagram");
+  if (deduped.includes("balanced") && styleModes.length > 0) {
     return deduped.filter((mode) => mode !== "balanced");
+  }
+
+  // Always inject diagram if not already present
+  if (!deduped.includes("diagram")) {
+    deduped.push("diagram");
   }
 
   return deduped;

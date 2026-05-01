@@ -4,7 +4,7 @@ import { inngest } from "./client";
 import { generateText } from "ai";
 import { google } from "@ai-sdk/google";
 import { getRepoFileContentsFromOctokit } from "@/module/github/github";
-import { indexCodebase, deleteRepoVectors } from "@/module/ai/lib/rag";
+import { indexCodebase, deleteRepoVectors, queryCodebase } from "@/module/ai/lib/rag";
 import { createLogger } from "@/lib/logger";
 import { Prisma } from "@prisma/client";
 import { Octokit } from "octokit";
@@ -1222,101 +1222,71 @@ export const processPRMention = inngest.createFunction(
         );
         responseText = memeHumor.length > 0 ? memeHumor.join("\n").replace("\n\n", "\n") : "Here's a meme for you! 🐢";
       } else if (isDiagramCommand) {
-        // Get file list to understand the PR structure
         const octokitForDiagram = await getPreferredOctokit(owner, repo, userId);
-        const { data: prFiles } = await octokitForDiagram.rest.pulls.listFiles({
-          owner, repo, pull_number: prNumber,
+
+        // Fetch PR files and diff in parallel
+        const [{ data: prFiles }, diffText] = await Promise.all([
+          octokitForDiagram.rest.pulls.listFiles({ owner, repo, pull_number: prNumber }),
+          octokitForDiagram
+            .request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
+              owner,
+              repo,
+              pull_number: prNumber,
+              headers: { accept: "application/vnd.github.v3.diff" },
+            })
+            .then((r) => r.data as unknown as string)
+            .catch(() => ""),
+        ]);
+
+        // Pull repo context from RAG
+        let ragContext = "";
+        const dbRepo = await prisma.repository.findFirst({
+          where: { owner, name: repo, userId },
+          select: { id: true },
         });
-        
-        const addedFiles = prFiles.filter(f => f.status === "added").map(f => f.filename);
-        const modifiedFiles = prFiles.filter(f => f.status === "modified").map(f => f.filename);
-        const allFiles = [...addedFiles, ...modifiedFiles];
-        
-        // Categorize files
-        const pages = allFiles.filter(f => /page\.tsx$|page\.jsx$|\/page\//.test(f));
-        const components = allFiles.filter(f => /components?\//i.test(f) || /_components\//i.test(f));
-        const hooks = allFiles.filter(f => /hooks?\//i.test(f));
-        const api = allFiles.filter(f => /api\//i.test(f) || /route\.(ts|js)$/.test(f));
-        const lib = allFiles.filter(f => /lib\//i.test(f) || /utils\//i.test(f));
-        const actions = allFiles.filter(f => /actions\//i.test(f) || /\.actions\./i.test(f));
-        
-        // Build a SEQUENCE diagram
-        let diagram = "sequenceDiagram\n";
-        diagram += "    autonumber\n";
-        diagram += "    participant U as User\n";
-        
-        // Add participants based on what's in the PR
-        const participants: string[] = [];
-        if (pages.length > 0) {
-          diagram += "    participant FE as Frontend\n";
-          participants.push("FE");
+        if (dbRepo) {
+          const changedFilenames = prFiles.map((f) => f.filename).join(", ");
+          const ragResults = await queryCodebase(
+            `Architecture, data flow, and module relationships for: ${changedFilenames}`,
+            dbRepo.id,
+            6,
+          ).catch(() => []);
+          ragContext = ragResults
+            .map((r) => `File: ${r.path}\n${r.content.slice(0, 800)}`)
+            .join("\n\n");
         }
-        if (components.length > 0) {
-          diagram += "    participant UI as UI Components\n";
-          participants.push("UI");
-        }
-        if (hooks.length > 0) {
-          diagram += "    participant Hook as Hooks\n";
-          participants.push("Hook");
-        }
-        if (api.length > 0) {
-          diagram += "    participant API as API\n";
-          participants.push("API");
-        }
-        if (lib.length > 0) {
-          diagram += "    participant SVC as Services\n";
-          participants.push("SVC");
-        }
-        diagram += "    participant DB as Database\n";
-        
-        // Build actual flow lines based on what's in the PR
-        diagram += "\n    %% User action\n";
-        diagram += "    U->>FE: interacts\n";
-        
-        if (pages.length > 0 && components.length > 0) {
-          diagram += "    FE->>UI: renders components\n";
-        }
-        
-        if (components.length > 0 && hooks.length > 0) {
-          diagram += "    UI->>Hook: calls hook\n";
-          diagram += "    Hook->>Hook: processes data\n";
-        }
-        
-        if ((components.length > 0 || hooks.length > 0) && api.length > 0) {
-          const from = hooks.length > 0 ? "Hook" : "UI";
-          diagram += `    ${from}->>API: API request\n`;
-          diagram += "    API->>SVC: business logic\n";
-        } else if (pages.length > 0 && api.length > 0) {
-          diagram += "    FE->>API: API request\n";
-          diagram += "    API->>SVC: business logic\n";
-        }
-        
-        if (api.length > 0 || lib.length > 0) {
-          diagram += "    SVC->>DB: query/save\n";
-          diagram += "    DB-->>SVC: result\n";
-          diagram += "    SVC-->>API: response\n";
-        }
-        
-        if (api.length > 0) {
-          diagram += "    API-->>FE: JSON response\n";
-        } else if (lib.length > 0 && hooks.length > 0) {
-          diagram += "    SVC-->>Hook: data\n";
-          diagram += "    Hook-->>UI: state update\n";
-        }
-        
-        if (hooks.length > 0 && components.length > 0) {
-          diagram += "    UI-->>U: UI updates\n";
-        } else if (pages.length > 0) {
-          diagram += "    FE-->>U: renders page\n";
-        }
-        
-        // Add notes about what changed
-        const changes: string[] = [];
-        if (pages.length > 0) changes.push(`${pages.length} page(s)`);
-        if (components.length > 0) changes.push(`${components.length} component(s)`);
-        if (api.length > 0) changes.push(`${api.length} endpoint(s)`);
-        
-        responseText = `**${allFiles.length} files changed**\n\nHere's how data flows in this PR:\n\n\`\`\`mermaid\n${diagram}\`\`\`\n\nChanges: ${changes.join(", ")}`;
+
+        const fileList = prFiles
+          .map((f) => `${f.status}: ${f.filename} (+${f.additions}/-${f.deletions})`)
+          .join("\n");
+
+        const { text: rawDiagram } = await generateText({
+          model: google("gemini-2.5-flash"),
+          system: `You are a software architect. Generate a Mermaid diagram for the pull request changes described below.
+Rules:
+- Output ONLY raw Mermaid syntax — no code fences, no explanation, no prose
+- Use flowchart TD for component/module relationships or call graphs
+- Use sequenceDiagram for request/response flows, API chains, or async interactions
+- Max 12 nodes; labels ≤4 words using real names from the diff
+- Only show components directly touched by the changed files
+- Every arrow must represent actual data or control flow`,
+          prompt: [
+            `Changed files (${prFiles.length}):`,
+            fileList,
+            ragContext ? `\nCodebase context:\n${ragContext}` : "",
+            diffText ? `\nDiff (excerpt):\n${diffText.slice(0, 4000)}` : "",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          maxOutputTokens: 900,
+        });
+
+        const cleanDiagram = rawDiagram
+          .replace(/```mermaid\n?/gi, "")
+          .replace(/```\n?/g, "")
+          .trim();
+
+        responseText = `Here's a diagram of the changes in this PR:\n\n\`\`\`mermaid\n${cleanDiagram}\n\`\`\``;
       } else if (isIssuesCommand) {
         // Get issues from stored review
         const review = await prisma.codeReview.findFirst({
