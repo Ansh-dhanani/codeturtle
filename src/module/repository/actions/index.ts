@@ -16,15 +16,15 @@ import { AI_PROVIDERS } from "@/lib/ai-providers";
 export const fetchUserRepositories = async (page: number = 1, perPage: number = 10) => {
     try {
         const session = await auth.api.getSession
-        ({
-            headers: await headers(),
-        });
+            ({
+                headers: await headers(),
+            });
         const user = session?.user;
         if (!user) {
             throw new Error("User not authenticated");
         }
         const repositories = await getRepositories(page, perPage);
-        
+
         const dbRepos = await prisma.repository.findMany({
             where: {
                 userId: session.user.id,
@@ -55,7 +55,7 @@ export const fetchUserRepositories = async (page: number = 1, perPage: number = 
         );
 
         return repositories
-            .map((repo: { id: number; full_name: string; [key: string]: unknown }) => {
+            .map((repo: { id: number; full_name: string;[key: string]: unknown }) => {
                 const connected = connectedRepoMap.get(String(repo.id));
                 return {
                     ...repo,
@@ -80,7 +80,7 @@ export const fetchUserRepositories = async (page: number = 1, perPage: number = 
     }
 }
 
-export const connectRepository = async (owner: string,repo: string,githubId: number) => {
+export const connectRepository = async (owner: string, repo: string, githubId: number) => {
     try {
         const session = await auth.api.getSession({
             headers: await headers(),
@@ -88,7 +88,7 @@ export const connectRepository = async (owner: string,repo: string,githubId: num
         if (!session) {
             throw new Error("User not authenticated");
         }
-        const webhook = await createWebhook(owner,repo);
+        const webhook = await createWebhook(owner, repo);
 
         if (!webhook) {
             throw new Error("Failed to create webhook");
@@ -109,7 +109,8 @@ export const connectRepository = async (owner: string,repo: string,githubId: num
 
         //todo increment user's connected repository count
         try {
-            await inngest.send({name: "repository.connected",
+            await inngest.send({
+                name: "repository.connected",
                 data: {
                     owner,
                     repo,
@@ -120,14 +121,14 @@ export const connectRepository = async (owner: string,repo: string,githubId: num
             console.error("Error sending inngest event:", error);
         }
 
-        return webhook;
+        return { success: true, webhook };
     } catch (error) {
         console.error('Error connecting repository:', error);
         const message = error instanceof Error ? error.message : 'Failed to connect repository';
         if (/bad credentials|authentication expired|reconnect your github/i.test(message)) {
-            throw new Error('GitHub authentication expired. Reconnect your GitHub account in settings and try again.');
+            return { error: 'GitHub authentication expired. Reconnect your GitHub account in settings and try again.' };
         }
-        throw error; // Re-throw to let the hook handle it
+        return { error: message };
     }
 }
 

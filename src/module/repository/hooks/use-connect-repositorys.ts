@@ -5,23 +5,29 @@ import { connectRepository as connectRepositoryAction } from '../actions';
 import { toast } from 'sonner';
 
 type RepositoryRow = {
-  id: number;
-  isConnected: boolean;
-  [key: string]: unknown;
+    id: number;
+    isConnected: boolean;
+    [key: string]: unknown;
 };
 
 type RepositoryPage = RepositoryRow[];
 
 type ConnectVariables = {
-  owner: string;
-  repo: string;
-  githubId: number;
+    owner: string;
+    repo: string;
+    githubId: number;
 };
 
 export const useConnectRepository = () => {
-  const queryClient = useQueryClient();
+    const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: ({ owner, repo, githubId }: ConnectVariables) => connectRepositoryAction(owner, repo, githubId),
+        mutationFn: async ({ owner, repo, githubId }: ConnectVariables) => {
+            const result = await connectRepositoryAction(owner, repo, githubId);
+            if (result && 'error' in result) {
+                throw new Error(result.error as string);
+            }
+            return result;
+        },
         onMutate: async ({ githubId }: ConnectVariables) => {
             await queryClient.cancelQueries({ queryKey: ['repositories'] });
 
@@ -52,8 +58,8 @@ export const useConnectRepository = () => {
             if (context?.previousRepositories) {
                 queryClient.setQueryData(['repositories'], context.previousRepositories);
             }
-            const message = error && typeof error === 'object' && 'message' in error 
-                ? (error as { message: string }).message 
+            const message = error && typeof error === 'object' && 'message' in error
+                ? (error as { message: string }).message
                 : "An error occurred while connecting the repository.";
             toast("Error connecting repository: " + message);
             console.error(error);
