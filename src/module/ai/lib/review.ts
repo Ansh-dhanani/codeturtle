@@ -44,7 +44,7 @@ const ReviewSuggestionSchema = z.object({
 }));
 
 const CodeReviewSchema = z.object({
-  summary: z.string().default("No summary provided."),
+  summary: z.string().default("Reviewed and ready for feedback!"),
   overallScore: z.number().min(0).max(10).default(5),
   issues: z.array(ReviewIssueSchema).default([]),
   suggestions: z.array(ReviewSuggestionSchema).default([]),
