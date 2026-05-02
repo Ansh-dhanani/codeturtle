@@ -18,6 +18,8 @@ type ConnectVariables = {
     githubId: number;
 };
 
+import { authenticateWithGithub } from '@/utils/auth';
+
 export const useConnectRepository = () => {
     const queryClient = useQueryClient();
     return useMutation({
@@ -50,7 +52,7 @@ export const useConnectRepository = () => {
             return { previousRepositories };
         },
         onSuccess: () => {
-            toast("Repository connected: The repository has been successfully connected.");
+            toast.success("Repository connected successfully!");
             queryClient.invalidateQueries({ queryKey: ['repositories'] });
             queryClient.invalidateQueries({ queryKey: ['connected-repositories'] });
         },
@@ -61,7 +63,19 @@ export const useConnectRepository = () => {
             const message = error && typeof error === 'object' && 'message' in error
                 ? (error as { message: string }).message
                 : "An error occurred while connecting the repository.";
-            toast("Error connecting repository: " + message);
+
+            // Automatically re-authenticate if GitHub blocks the token due to old app integration or scope issues
+            if (
+                message.toLowerCase().includes("resource not accessible by integration") ||
+                message.toLowerCase().includes("reconnect your github account") ||
+                message.toLowerCase().includes("webhook permission denied")
+            ) {
+                toast.error("Auth expired or insufficient scopes. Redirecting to GitHub to re-authorize...");
+                authenticateWithGithub().catch(console.error);
+                return;
+            }
+
+            toast.error("Error connecting repository: " + message);
             console.error(error);
         },
     });

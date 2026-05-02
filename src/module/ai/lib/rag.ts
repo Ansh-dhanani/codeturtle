@@ -1,10 +1,9 @@
 import { pineconeClient, pineconeIndexName } from "@/lib/pinecone";
-import { embed } from "ai";
+import { embed, embedMany } from "ai";
 import { google } from "@ai-sdk/google";
 
 const BATCH_SIZE = 100;
 const MAX_CONTENT_LENGTH = 8000;
-const EMBEDDING_BATCH_SIZE = 10; // Batch embeddings for faster processing
 
 function getPineconeIndex() {
   try {
@@ -28,21 +27,16 @@ export async function generateEmbeddings(text: string) {
 }
 
 async function generateEmbeddingsBatch(texts: string[]): Promise<(number[] | null)[]> {
-  const results: (number[] | null)[] = [];
-  for (let i = 0; i < texts.length; i += EMBEDDING_BATCH_SIZE) {
-    const batch = texts.slice(i, i + EMBEDDING_BATCH_SIZE);
-    const batchPromises = batch.map(async (text) => {
-      try {
-        return await generateEmbeddings(text);
-      } catch (error) {
-        console.error(`Error generating embedding for batch slice:`, error);
-        return null;
-      }
+  try {
+    const { embeddings } = await embedMany({
+      model: google.textEmbeddingModel("gemini-embedding-001"),
+      values: texts.map(t => t.slice(0, 10000)), // Safe constraint per string
     });
-    const batchResults = await Promise.all(batchPromises);
-    results.push(...batchResults);
+    return embeddings;
+  } catch (error) {
+    console.error("Fatal error during embedMany batch generation:", error);
+    return new Array(texts.length).fill(null);
   }
-  return results;
 }
 
 export async function indexCodebase(
