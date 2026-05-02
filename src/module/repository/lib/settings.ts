@@ -50,11 +50,6 @@ export function normalizeRepoReviewModes(value?: string | string[] | null): Repo
     return deduped.filter((mode) => mode !== "balanced");
   }
 
-  // Always inject diagram if not already present
-  if (!deduped.includes("diagram")) {
-    deduped.push("diagram");
-  }
-
   return deduped;
 }
 

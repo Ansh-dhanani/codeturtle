@@ -60,18 +60,26 @@ const CodeReviewSchema = z.object({
   architectureNotes: z.string().optional(),
   diagram: z.string().optional().transform(val => {
     if (!val) return val;
-    // Replace literal escaped \n with actual newlines
     let parsed = val.replace(/\\n/g, '\n');
-    // Strip trailing conversational garbage after the end of the diagram
-    // Usually AI hallucination happens after a bracket or quote. We extract up to the last valid Mermaid line.
     const validLines = [];
     for (const line of parsed.split('\n')) {
       const trimmed = line.trim();
-      // Stop capturing if we hit blatant AI commentary not matching Mermaid
-      if (trimmed.startsWith('//') || trimmed.toLowerCase().includes('this is invalid json') || trimmed.includes('```')) break;
+      const lower = trimmed.toLowerCase();
+      // Aggressive cutoff for weak LLM hallucinations (nested JSON, chat logic, etc)
+      if (
+        trimmed.startsWith('//') ||
+        trimmed.startsWith('{') ||
+        trimmed.startsWith('}') ||
+        lower.includes('this is invalid json') ||
+        lower.includes('entire_output') ||
+        lower.includes('review summary:') ||
+        trimmed.includes('```')
+      ) {
+        break;
+      }
       validLines.push(line);
     }
-    return validLines.join('\n').replace(/"/g, '').trim(); // Strip double quotes that could break rendering
+    return validLines.join('\n').replace(/"/g, '').trim();
   }),
 }).transform((data) => ({
   ...data,
@@ -573,11 +581,11 @@ export async function generateCodeReview(params: {
   );
   const reviewModes = normalizeRepoReviewModes(repositorySettings?.reviewStyle);
   const customPrompt = normalizeCustomPrompt(repositorySettings?.customPrompt, 2000);
-  const diagramAllowed = true;
+  const diagramAllowed = reviewModes.includes("diagram");
   const systemPrompt = [
     BASE_SYSTEM_PROMPT,
     JSON_OUTPUT_INSTRUCTIONS,
-    DIAGRAM_OUTPUT_INSTRUCTIONS,
+    diagramAllowed ? DIAGRAM_OUTPUT_INSTRUCTIONS : "Do NOT include or generate a diagram field. You must omit it.",
     "",
     `Repository style: ${getReviewModesInstruction(reviewModes)}`,
     customPrompt ? `Repository custom prompt: ${customPrompt}` : "",
