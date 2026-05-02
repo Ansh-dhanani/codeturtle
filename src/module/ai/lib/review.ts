@@ -416,21 +416,22 @@ Score guidelines:
 - 3-4: Needs significant improvements
 - 1-2: Major problems, rewrite needed`;
 
-const JSON_OUTPUT_INSTRUCTIONS = `You must output a single JSON object that matches the requested schema.
-Do not wrap the JSON in markdown. Do not include commentary outside JSON.
-Use double quotes for all strings and keys. Do not use trailing commas.
-If a field needs multiple lines, use \\n for newlines inside the JSON string.`;
+const JSON_OUTPUT_INSTRUCTIONS = `You must output a single strictly valid JSON object that matches the requested schema EXACTLY!
+Do NOT wrap the JSON in markdown code blocks. Do NOT output any chain-of-thought, commentary, or text outside the JSON.
+CRITICAL JSON RULES:
+- Use double quotes for all strings and keys.
+- You MUST escape all newlines as \\n within string values. DO NOT insert literal unescaped newlines in the JSON string.
+- Ensure all braces and quotes are perfectly closed.`;
 
 const DIAGRAM_OUTPUT_INSTRUCTIONS = `Always populate the "diagram" field with a Mermaid diagram that maps the architecture, data flow, or control flow of the changed code.
 Choose the most appropriate diagram type:
 - flowchart TD: component trees, module dependencies, call graphs
 - sequenceDiagram: request/response chains, API calls, async flows
 Rules:
-- Output raw Mermaid syntax only — no code fences, no explanation text
-- Max 12 nodes; labels ≤4 words using real names from the diff
-- Only show components that are directly touched by the changed files
-- Every arrow must represent actual data or control flow, not just file proximity
-- If the diff is small, prefer depth over breadth — trace one key flow end-to-end`;
+- Make sure to format it as a single line string with \\n for line breaks! Example: "flowchart TD\\n    A-->B\\n    B-->C"
+- Output raw Mermaid syntax only — no markdown fences.
+- Max 12 nodes; labels ≤4 words using real names.
+- Do NOT use double quotes inside Mermaid labels to avoid breaking JSON string bounds.`;
 
 function escapeControlCharsInString(value: string): string {
   let result = "";
@@ -482,7 +483,7 @@ function escapeControlCharsInString(value: string): string {
 
 function parseReviewJson(raw: string): CodeReview {
   let candidate: string;
-  
+
   // First try to extract JSON from markdown code blocks
   const jsonBlockMatch = raw.match(/```json\s*([\s\S]*?)\s*```/);
   if (jsonBlockMatch) {
@@ -496,12 +497,12 @@ function parseReviewJson(raw: string): CodeReview {
     }
     candidate = raw.slice(start, end + 1);
   }
-  
+
   // Remove any remaining markdown
   candidate = candidate.replace(/```\w*\n?/g, '').trim();
-  
+
   const sanitized = escapeControlCharsInString(candidate);
-  
+
   try {
     const parsed = JSON.parse(sanitized);
     return CodeReviewSchema.parse(parsed);
@@ -1005,9 +1006,9 @@ Provide a structured review with specific issues, suggestions, and an overall sc
       const groqApiKey = userApiKey || process.env.GROQ_API_KEY;
       const groqClient = groqApiKey
         ? createOpenAI({
-            apiKey: groqApiKey,
-            baseURL: "https://api.groq.com/openai/v1",
-          })
+          apiKey: groqApiKey,
+          baseURL: "https://api.groq.com/openai/v1",
+        })
         : null;
 
       const groqFallbackModels = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
