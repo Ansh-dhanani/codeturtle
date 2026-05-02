@@ -58,7 +58,21 @@ const CodeReviewSchema = z.object({
   suggestions: z.array(ReviewSuggestionSchema).default([]),
   positives: z.array(z.string()).default([]),
   architectureNotes: z.string().optional(),
-  diagram: z.string().optional(),
+  diagram: z.string().optional().transform(val => {
+    if (!val) return val;
+    // Replace literal escaped \n with actual newlines
+    let parsed = val.replace(/\\n/g, '\n');
+    // Strip trailing conversational garbage after the end of the diagram
+    // Usually AI hallucination happens after a bracket or quote. We extract up to the last valid Mermaid line.
+    const validLines = [];
+    for (const line of parsed.split('\n')) {
+      const trimmed = line.trim();
+      // Stop capturing if we hit blatant AI commentary not matching Mermaid
+      if (trimmed.startsWith('//') || trimmed.toLowerCase().includes('this is invalid json') || trimmed.includes('```')) break;
+      validLines.push(line);
+    }
+    return validLines.join('\n').replace(/"/g, '').trim(); // Strip double quotes that could break rendering
+  }),
 }).transform((data) => ({
   ...data,
   summary: data.summary || "No summary provided.",
@@ -420,7 +434,7 @@ const JSON_OUTPUT_INSTRUCTIONS = `You must output a single strictly valid JSON o
 Do NOT wrap the JSON in markdown code blocks. Do NOT output any chain-of-thought, commentary, or text outside the JSON.
 CRITICAL JSON RULES:
 - Use double quotes for all strings and keys.
-- You MUST escape all newlines as \\n within string values. DO NOT insert literal unescaped newlines in the JSON string.
+- You can use standard newlines inside the diagram string.
 - Ensure all braces and quotes are perfectly closed.`;
 
 const DIAGRAM_OUTPUT_INSTRUCTIONS = `Always populate the "diagram" field with a Mermaid diagram that maps the architecture, data flow, or control flow of the changed code.
@@ -428,7 +442,6 @@ Choose the most appropriate diagram type:
 - flowchart TD: component trees, module dependencies, call graphs
 - sequenceDiagram: request/response chains, API calls, async flows
 Rules:
-- Make sure to format it as a single line string with \\n for line breaks! Example: "flowchart TD\\n    A-->B\\n    B-->C"
 - Output raw Mermaid syntax only — no markdown fences.
 - Max 12 nodes; labels ≤4 words using real names.
 - Do NOT use double quotes inside Mermaid labels to avoid breaking JSON string bounds.`;
