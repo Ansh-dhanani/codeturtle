@@ -1,0 +1,58 @@
+---
+title: Billing & plans
+description: Free, Pro, and Enterprise - limits, upgrades, and how billing works
+---
+
+## Plans
+
+| Plan | Price | What you get |
+| --- | --- | --- |
+| **Free** | $0 | 20 reviews/mo · 5 repositories · 5 reviews per PR · 3 commits per PR max · all free models |
+| **Pro** | $4/mo | Unlimited reviews, repositories, PRs, and commits · all free models · bring your own API keys · custom rules · priority support |
+| **Enterprise** | $49/mo ~~$99~~ | Everything in Pro · org onboarding · dedicated help |
+
+Enterprise pricing reflects a **50% launch discount** for early adopters - the struck-through $99/mo is the standard price after the launch window closes.
+
+<Callout title="No credit card for Free">
+  The Free plan is free forever and needs no card. Upgrade only when you know you want it - cancel anytime from the Billing page.
+</Callout>
+
+## How billing works
+
+Checkout and subscription management run through **[Polar](https://polar.sh)**. Polar is the merchant of record; CodeTurtle never sees your full card number.
+
+<Steps>
+  <Step>
+    Click **Upgrade** on [Billing](/billing) and complete Polar checkout.
+  </Step>
+  <Step>
+    Polar fires a signed `subscription.created` webhook to CodeTurtle within seconds.
+  </Step>
+  <Step>
+    CodeTurtle validates the Standard Webhooks signature, matches the checkout to your account, and bumps your plan to Pro/Enterprise - usually before the checkout page returns.
+  </Step>
+  <Step>
+    You get the Pro badge in the dashboard, unlimited usage, and BYOK unlocked immediately. No re-login required.
+  </Step>
+</Steps>
+
+Downgrades go through the opposite path: `subscription.canceled` snaps limits back to Free at the end of the billing period. Cancellation is one click in **Manage** on the Billing page.
+
+## Usage & limits
+
+- [Billing](/billing) shows this month's review count, plan, and reset date
+- Free usage resets on your billing cycle; Pro has no visible counters because there is no limit
+- If a review can't run due to plan limits, CodeTurtle tells you why on the PR comment and links to upgrade
+
+## Invoices & receipts
+
+Polar issues every invoice and receipt automatically - check the email you used at checkout, or the **Manage** portal on [Billing](/billing) for past invoices.
+
+## Refunds & cancellations
+
+- Cancel anytime; Pro remains active until the current period ends
+- Refund requests: email [dhananiansh01@gmail.com](mailto:dhananiansh01@gmail.com) with your Polar invoice attached
+
+<Callout type="warn" title="Annual plans">
+  Enterprise annual billing is handled directly - reach out at [dhananiansh01@gmail.com](mailto:dhananiansh01@gmail.com) and we will switch you over.
+</Callout>

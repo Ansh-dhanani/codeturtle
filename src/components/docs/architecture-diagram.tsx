@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { renderMermaidSVG, THEMES } from "beautiful-mermaid";
+import { renderMermaidSVG } from "beautiful-mermaid";
 
 const DIAGRAM_CODE = `
 sequenceDiagram

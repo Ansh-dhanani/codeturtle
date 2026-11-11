@@ -4,7 +4,6 @@ import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { deleteWebhook } from "@/module/github/github";
-import { AI_PROVIDERS } from "@/lib/ai-providers";
 import {
   normalizeCustomPrompt,
   normalizeRepoReviewModes,
@@ -97,14 +96,47 @@ export async function updateUserAIModel(provider: string, model: string, apiKey?
       }
     }
 
-    const providerConfig = AI_PROVIDERS.find((p) => p.id === provider);
-    const modelConfig = providerConfig?.models.find((m) => m.id === normalizedModel);
-    if (!providerConfig || !modelConfig) {
-      throw new Error("Invalid AI provider or model selection");
+    const { getLiveCatalog, isFreeProviderModel } = await import("@/lib/ai-catalog");
+    const liveCatalog = await getLiveCatalog();
+    const liveProvider = liveCatalog.find((p) => p.id === provider);
+    const liveModel = liveProvider?.models.find((m) => m.id === normalizedModel);
+    if (!liveProvider || !liveModel) {
+      throw new Error(`Model "${normalizedModel}" is not available on ${provider} - it may have been retired. Refresh the catalog and pick a new model.`);
+    }
+
+    // Free-tier users can only select free models; Pro unlocks the whole catalog
+    const { canUsePaidModels } = await import("@/lib/billing.server");
+    if (!(await canUsePaidModels(session.user.id)) && !isFreeProviderModel(provider, normalizedModel)) {
+      throw new Error(`"${normalizedModel}" is a Pro model - upgrade to Pro to use it, or pick a free model.`);
     }
 
     if (apiKey && !isApiKeyFormatValidForProvider(provider, apiKey)) {
-      throw new Error(`The provided API key does not match ${providerConfig.name}.`);
+      throw new Error(`The provided API key does not match ${liveProvider?.name ?? provider}.`);
+    }
+
+    // BYOK is a Pro feature - free users share platform free keys only
+    if (apiKey) {
+      const { canUsePaidModels } = await import("@/lib/billing.server");
+      if (!(await canUsePaidModels(session.user.id))) {
+        throw new Error("Bring your own API key is a Pro feature - upgrade to Pro to add your own keys.");
+      }
+    }
+
+    const { encryptApiKey, isEncryptedValue } = await import("@/lib/crypto");
+
+    // If the user saved without replacing their key, transparently upgrade any
+    // legacy plaintext key in the database to encrypted form.
+    if (!apiKey) {
+      const existing = await prisma.user.findUnique({
+        where: { id: session.user.id },
+        select: { aiApiKey: true },
+      });
+      if (existing?.aiApiKey && !isEncryptedValue(existing.aiApiKey)) {
+        await prisma.user.update({
+          where: { id: session.user.id },
+          data: { aiApiKey: encryptApiKey(existing.aiApiKey) },
+        });
+      }
     }
 
     await prisma.user.update({
@@ -112,7 +144,7 @@ export async function updateUserAIModel(provider: string, model: string, apiKey?
       data: {
         aiProvider: provider,
         aiModel: normalizedModel,
-        ...(apiKey ? { aiApiKey: apiKey } : {}),
+        ...(apiKey ? { aiApiKey: encryptApiKey(apiKey) } : {}),
       },
     });
     revalidatePath("/settings", "page");
@@ -146,6 +178,7 @@ export async function getConnectedRepositories() {
         customPrompt: true,
         aiProvider: true,
         aiModel: true,
+        reviewMode: true,
         createdAt: true,
       },
       orderBy: { createdAt: "desc" },
@@ -269,20 +302,29 @@ export async function updateRepositoryBehaviorSettings(data: {
     }
 
     const customPrompt = normalizeCustomPrompt(data.customPrompt, 2000);
+    if (customPrompt) {
+      const { canUseCustomRules } = await import("@/lib/billing.server");
+      if (!(await canUseCustomRules(session.user.id))) {
+        throw new Error("Custom rules are a Pro feature - upgrade to use them");
+      }
+    }
 
     const provider = data.aiProvider?.trim() || null;
     const model = data.aiModel?.trim() || null;
-    const providerConfig = provider ? AI_PROVIDERS.find((p) => p.id === provider) : null;
-    const modelConfig = providerConfig && model
-      ? providerConfig.models.find((m) => m.id === model)
-      : null;
 
-    if (provider && !providerConfig) {
-      throw new Error("Invalid AI provider selection");
-    }
+    // Validate against the live catalog - the static list goes stale as providers rotate models.
+    if (provider || model) {
+      const { getLiveCatalog } = await import("@/lib/ai-catalog");
+      const liveCatalog = await getLiveCatalog();
+      const liveProvider = liveCatalog.find((p) => p.id === provider);
+      const liveModel = liveProvider?.models.find((m) => m.id === model);
 
-    if (provider && model && !modelConfig) {
-      throw new Error("Invalid AI model selection");
+      if (provider && !liveProvider) {
+        throw new Error("The saved AI provider is no longer available. Refresh the catalog and pick a new provider.");
+      }
+      if (provider && model && !liveModel) {
+        throw new Error("The saved AI model is no longer available on this provider. Refresh the catalog and pick a live model.");
+      }
     }
 
     await prisma.repository.update({

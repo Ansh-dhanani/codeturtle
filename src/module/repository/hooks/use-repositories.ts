@@ -10,7 +10,7 @@ export const useRepositories = () => {
             if (data && !Array.isArray(data) && 'error' in data) {
                 throw new Error(data.error as string);
             }
-            return data as any[];
+            return data as Array<Record<string, unknown>>;
         }
         ,
         getNextPageParam: (lastPage, allPages) => {

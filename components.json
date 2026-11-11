@@ -18,5 +18,10 @@
     "lib": "@/lib",
     "hooks": "@/hooks"
   },
-  "registries": {}
+  "registries": {
+    "@efferd": "https://efferd.com/r/{style}/{name}.json",
+    "@magicui": "https://magicui.design/r/{name}",
+    "@react-bits": "https://reactbits.dev/r/{name}.json",
+    "@evilcharts": "https://evilcharts.com/r/{name}.json"
+  }
 }

@@ -13,8 +13,9 @@ export const dynamic = 'force-dynamic';
 export default async function SettingsPage() {
   const session = await auth.api.getSession({ headers: await headers() });
   let githubConnected = false;
-  let userAiModel = "gemini-2.5-flash";
-  let userAiProvider = "google";
+  let userAiModel = "openrouter/auto";
+  let userAiProvider = "openrouter";
+  let hasSavedApiKey = false;
   if (session) {
     const account = await prisma.account.findFirst({
       where: {
@@ -25,50 +26,51 @@ export default async function SettingsPage() {
     githubConnected = !!account;
     const user = await prisma.user.findUnique({
       where: { id: session.user.id },
-      select: { aiModel: true, aiProvider: true },
+      select: { aiModel: true, aiProvider: true, aiApiKey: true },
     });
-    userAiModel = user?.aiModel || "gemini-2.5-flash";
-    const userAiProvider = user?.aiProvider || "google";
+    userAiModel = user?.aiModel || "openrouter/auto";
+    userAiProvider = user?.aiProvider || "openrouter";
+    hasSavedApiKey = Boolean(user?.aiApiKey);
   }
   return (
     <div className="space-y-6">
-      <div>
+      <div className="flex flex-col gap-1">
         <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
-        <p className="text-muted-foreground">
-          Configure your account and application settings
+        <p className="text-sm text-muted-foreground">
+          Configure your account, AI review model and repositories.
         </p>
       </div>
 
-      <AIModelSelector currentProvider={userAiProvider} currentModel={userAiModel} />
+      <AIModelSelector currentProvider={userAiProvider} currentModel={userAiModel} hasSavedApiKey={hasSavedApiKey} />
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Github className="h-5 w-5" />
-            GitHub Integration
-          </CardTitle>
-          <CardDescription>
-            Connect your GitHub account to view contribution data and statistics.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {githubConnected ? (
-            <div className="flex items-center gap-2 text-green-600">
-              <Github className="h-4 w-4" />
-              GitHub account connected
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">
-                GitHub account not connected. Connect to view your contribution data.
-              </p>
-              <GithubConnectButton />
-            </div>
-          )}
-        </CardContent>
-      </Card>
-      <div className="space-y-4">
-          <ProfileForm />
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Github className="h-5 w-5" />
+              GitHub Integration
+            </CardTitle>
+            <CardDescription>
+              Connect your GitHub account to view contribution data and statistics.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {githubConnected ? (
+              <div className="flex items-center gap-2 text-foreground">
+                <Github className="h-4 w-4 text-muted-foreground" />
+                GitHub account connected
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  GitHub account not connected. Connect to view your contribution data.
+                </p>
+                <GithubConnectButton />
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        <ProfileForm />
       </div>
       <div className="space-y-4">
           <RepositoryList/>

@@ -85,6 +85,11 @@ BETTER_AUTH_URL="http://localhost:3000"
 
 NEXT_PUBLIC_APP_URL="http://localhost:3000"
 
+# Umami analytics (optional - disabled when the website ID is unset)
+# NEXT_PUBLIC_UMAMI_WEBSITE_ID="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+# NEXT_PUBLIC_UMAMI_SRC="https://cloud.umami.is/script.js"
+# NEXT_PUBLIC_UMAMI_DOMAINS="your-domain.com"
+
 GITHUB_CLIENT_ID="your-github-client-id"
 GITHUB_CLIENT_SECRET="your-github-client-secret"
 
@@ -121,6 +126,38 @@ bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+
+## Analytics (Umami)
+
+Umami is wired in but **disabled until you set the website ID**. Custom events are no-ops without it, and pageviews simply aren't collected.
+
+```env
+NEXT_PUBLIC_UMAMI_WEBSITE_ID="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" # from cloud.umami.is or your self-hosted instance
+NEXT_PUBLIC_UMAMI_SRC="https://cloud.umami.is/script.js"            # default
+NEXT_PUBLIC_UMAMI_DOMAINS="your-domain.com"                          # optional: restrict tracking to prod
+```
+
+**Tracked events** (via `trackEvent`, see `src/lib/analytics.ts`):
+
+| Event | Fires when | Payload |
+| --- | --- | --- |
+| `cta_start_reviewing_free` | Hero primary CTA click | – |
+| `cta_see_how_it_works` | Hero secondary CTA click | – |
+| `github_sign_in_clicked` | GitHub OAuth button click | – |
+| `plan_clicked` | Pricing card (public site) | `plan`, `frequency` |
+| `upgrade_started` | Dashboard upgrade button | `plan` |
+| `checkout_started` | Polar checkout redirect | `plan` |
+| `billing_portal_opened` | Polar customer portal opened | – |
+| `repository_connected` | Repository connected | `repo` |
+| `support_email_clicked` | Support mailto links | `location` |
+| `report_downloaded` | Markdown report export | `scope` |
+| `review_feedback_given` | Finding up/downvote | `rating` |
+| `fix_pr_requested` | Fix PR button on a finding | – |
+| `ai_model_saved` | AI model saved in settings | `provider`, `model` |
+| `command_palette_opened` | Palette opened (button/keys) | `source` |
+| `notifications_opened` | Bell opened | – |
+
+Pageviews and scroll depth are tracked automatically per route. Suggested funnel in Umami: `cta_start_reviewing_free` → `github_sign_in_clicked` → `repository_connected` → `upgrade_started` → `checkout_started`.
 
 ## Database Scripts
 

@@ -1,0 +1,60 @@
+---
+title: Models
+description: Default models, the live catalog, and how to bring your own API keys
+---
+
+CodeTurtle reviews are only as good as the model behind them - so the catalog is **fetched live** from each provider and cached for 30 minutes. You never see a retired model presented as available.
+
+## Default
+
+CodeTurtle defaults to **OpenRouter auto-routing** - the request lands on the best available routed model at review time, which keeps reviews working even when individual upstream models churn or retire. When no model is configured anywhere, this is what your PRs get.
+
+You can change the model at any time in **Settings → AI Review Model** or per-repository in the repo's **Configure** sheet.
+
+## The live catalog
+
+Every provider below appears in the picker automatically, with retirement status and pricing signals refreshed every 30 minutes:
+
+| Provider | What you get | Plan |
+| --- | --- | --- |
+| **OpenRouter** | `openrouter/auto` router plus `:free` model slugs (Nemotron, Cohere North, Gemma families, and more) | Free models on Free; everything with BYOK on Pro |
+| **Google** | Gemini 2.5 Flash / Pro, Gemma - excellent fast free tier | Free on all plans |
+| **Groq** | Llama and GPT-OSS on Groq's low-latency inference | Free on all plans |
+| **Anthropic** | Claude families | Pro / Enterprise (BYOK) |
+| **OpenAI** | GPT families | Pro / Enterprise (BYOK) |
+
+Famous, battle-tested families are marked with ★ **Recommended** in the picker.
+
+## Free vs Pro
+
+<Tabs items={["Free", "Pro / Enterprise"]}>
+  <Tab value="Free">
+    - All **free** models: Google and Groq's free tiers, and OpenRouter `:free` slugs
+    - 20 reviews per month, 5 repositories, 5 reviews per PR, 3 commits per PR max
+    - `openrouter/auto` is **not** available on Free (it routes to paid models)
+  </Tab>
+  <Tab value="Pro / Enterprise">
+    - **Bring your own API keys** - encrypted at rest with AES-256-GCM, never stored in plaintext
+    - All paid models from OpenRouter / Anthropic / OpenAI plus everything free
+    - Unlimited reviews, repositories, and commits
+  </Tab>
+</Tabs>
+
+## Bring your own keys (BYOK)
+
+Add a key in [Settings → API Keys](/settings). Keys are encrypted with **AES-256-GCM** before storage and decrypted only at review time, only in memory. CodeTurtle never logs keys and never sends them anywhere except to the provider you configured.
+
+Per-repository keys override your account key - handy for separating personal projects from work.
+
+## What happens if a model fails
+
+CodeTurtle validates your configured model against the live catalog before each review. If it's stale or errors mid-review, it tries, in order:
+
+1. Other live models from the same provider
+2. OpenRouter auto-routing (paid plans)
+3. Google Gemini 2.5 Flash as the final safety net
+4. If everything fails, a plain-language comment on the PR - never silence
+
+<Callout type="warn" title="Stale keys">
+  If you rotate or revoke a provider key, update it in Settings - failed key auth surfaces as a visible error on the review, not a silent skip.
+</Callout>

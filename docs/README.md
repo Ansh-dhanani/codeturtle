@@ -1,4 +1,4 @@
-# Documentation — CodeTurtle
+# Documentation - CodeTurtle
 
 This document consolidates the project's key documentation into a single reference.
 
@@ -33,7 +33,7 @@ Notes:
 
 ## GitHub Integration
 - OAuth scopes: `repo`, `admin:repo_hook` (as needed)
-- Webhooks: supported events — `ping`, `pull_request` (extendable)
+- Webhooks: supported events - `ping`, `pull_request` (extendable)
 - Secrets: webhook secrets are stored per repository and used to validate signatures
 - Local testing: use `ngrok` and set `NEXT_PUBLIC_APP_URL` to your tunnel URL
 

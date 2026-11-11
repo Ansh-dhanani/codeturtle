@@ -1,8 +1,13 @@
-﻿import { Octokit } from "octokit";
+import { Octokit } from "octokit";
 import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { headers } from "next/headers.js";
 import crypto from "crypto";
+
+function asGithubHttpError(error: unknown): { status?: number; message?: string } {
+  if (!error || typeof error !== "object") return {};
+  return error as { status?: number; message?: string };
+}
 
 function isGithubBadCredentialError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -42,11 +47,34 @@ export const getGithubToken = async () => {
   return account.accessToken;
 };
 
-export async function fetchUserContribution(token: string, username: string) {
+export async function fetchUserContribution(
+  token: string,
+  username: string,
+  options?: { from?: string; to?: string }
+) {
   const octokit = new Octokit({
     auth: token,
   });
-  const query = `
+  const useRange = options?.from && options?.to;
+  const query = useRange
+    ? `
+    query ($username: String!, $from: DateTime!, $to: DateTime!) {
+        user(login: $username) {
+            contributionsCollection(from: $from, to: $to) {
+                contributionCalendar {
+                    totalContributions
+                    weeks {
+                        contributionDays {
+                            date
+                            contributionCount
+                            color
+                        }
+                    }
+                }
+            }
+        }
+    }`
+    : `
     query ($username: String!) {
         user(login: $username) {
             contributionsCollection {
@@ -82,7 +110,10 @@ export async function fetchUserContribution(token: string, username: string) {
   }
 
   try {
-    const response: contributionData = await octokit.graphql(query, { username });
+    const variables = useRange
+      ? { username, from: options!.from, to: options!.to }
+      : { username };
+    const response: contributionData = await octokit.graphql(query, variables);
     return response.user.contributionsCollection.contributionCalendar;
   }
   catch (error) {
@@ -99,7 +130,7 @@ export const getRepositories = async (page: number = 1, perPage: number = 10) =>
   try {
     const { data } = await octokit.rest.repos.listForAuthenticatedUser({
       visibility: "all",
-      affiliation: "owner",
+      affiliation: "owner,collaborator,organization_member",
       per_page: perPage,
       page,
       sort: "updated",
@@ -134,9 +165,10 @@ export const createWebhook = async (owner: string, repo: string) => {
         `GitHub token missing required scope 'admin:repo_hook'. Current scopes: ${scopesHeader}. Reconnect your GitHub account and grant webhook permissions.`,
       );
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("Error checking GitHub token scopes:", err);
-    if (err && (err.status === 401 || err.status === 403)) {
+    const status = (err as { status?: number } | null)?.status;
+    if (status === 401 || status === 403) {
       throw new Error("Invalid or expired GitHub token. Please reconnect your GitHub account.");
     }
   }
@@ -152,14 +184,15 @@ export const createWebhook = async (owner: string, repo: string) => {
   try {
     const response = await octokit.rest.repos.listWebhooks({ owner, repo });
     hooks = response.data;
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (isGithubBadCredentialError(error)) {
       throw new Error("GitHub authentication expired. Please reconnect your GitHub account and try again.");
     }
-    if (error?.status === 404 || error?.status === 403) {
-      throw new Error(`Webhook permission denied (HTTP ${error.status}). GitHub says: ${error.message || "Unknown"}. Verify you are an admin of this repository, and if it's an Organization repo, ensure the Organization allows third-party OAuth access.`);
+    const ghe = asGithubHttpError(error);
+    if (ghe.status === 404 || ghe.status === 403) {
+      throw new Error(`Webhook permission denied (HTTP ${ghe.status}). GitHub says: ${ghe.message || "Unknown"}. Verify you are an admin of this repository, and if it's an Organization repo, ensure the Organization allows third-party OAuth access.`);
     }
-    throw new Error(`Failed to read repository webhooks from GitHub! GitHub says: ${error?.message || "Unknown error"}`);
+    throw new Error(`Failed to read repository webhooks from GitHub! GitHub says: ${ghe.message || "Unknown error"}`);
   }
 
   const matchingHooks = hooks.filter((hook) => hook.config.url === webhookUrl);
@@ -174,9 +207,9 @@ export const createWebhook = async (owner: string, repo: string) => {
           repo,
           hook_id: duplicate.id,
         });
-      } catch (error: any) {
-        if (error?.status !== 404) {
-          console.warn("Failed to delete duplicate webhook", { owner, repo, hookId: duplicate.id, error: error?.message });
+      } catch (error: unknown) {
+        if (asGithubHttpError(error).status !== 404) {
+          console.warn("Failed to delete duplicate webhook", { owner, repo, hookId: duplicate.id, error: asGithubHttpError(error).message });
         }
       }
     }
@@ -197,7 +230,7 @@ export const createWebhook = async (owner: string, repo: string) => {
           events: desiredEvents,
           active: true,
         });
-      } catch (error: any) {
+      } catch (error: unknown) {
         if (isGithubBadCredentialError(error)) {
           throw new Error("GitHub authentication expired. Please reconnect your GitHub account and try again.");
         }
@@ -221,14 +254,15 @@ export const createWebhook = async (owner: string, repo: string) => {
       events: desiredEvents,
     });
     return { ...response.data, secret };
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (isGithubBadCredentialError(error)) {
       throw new Error("GitHub authentication expired. Please reconnect your GitHub account and try again.");
     }
-    if (error?.status === 404 || error?.status === 403) {
-      throw new Error(`Webhook permission denied (HTTP ${error.status}). GitHub says: ${error.message || "Unknown"}. Verify you are an admin of this repository, and if it's an Organization repo, ensure the Organization allows third-party OAuth access.`);
+    const ghe = asGithubHttpError(error);
+    if (ghe.status === 404 || ghe.status === 403) {
+      throw new Error(`Webhook permission denied (HTTP ${ghe.status}). GitHub says: ${ghe.message || "Unknown"}. Verify you are an admin of this repository, and if it's an Organization repo, ensure the Organization allows third-party OAuth access.`);
     }
-    if (error?.status === 422) {
+    if (ghe.status === 422) {
       throw new Error("GitHub rejected webhook creation (422). Remove duplicate hooks if needed and retry.");
     }
     throw new Error("Failed to create webhook on GitHub.");

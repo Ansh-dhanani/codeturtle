@@ -1,0 +1,53 @@
+---
+title: Analytics & reports
+description: Score trends, severity breakdowns, per-repo insights, and exportable reports
+---
+
+The [Analytics](/analytics) page turns your review history into decisions: is the codebase getting healthier, where do the bugs concentrate, and which repos need attention?
+
+## KPIs at a glance
+
+The top row answers the four questions leadership actually asks:
+
+- **Total reviews** - volume over the selected window
+- **Average score** - 0-10 quality trend across all completed reviews
+- **Issues found** - total problems CodeTurtle surfaced (critical / warning / info)
+- **Completion rate** - completed vs failed review runs
+- **Positives flagged** - reinforcement signal for good changes
+
+## Charts
+
+| Chart | What it tells you |
+| --- | --- |
+| **12-week score trend** | Rolling average of review scores - are PRs getting safer over time? |
+| **Severity breakdown** | Critical / warning / info share of all findings |
+| **Weekly issue volume** | Stacked bar of findings per week, by severity |
+| **Per-repo table** | Reviews, average score, issues, suggestions, completion rate per repository |
+
+Score trend and issue charts use a trailing **12-week window**; the contribution graph on the dashboard shows a rolling **12 months** (switchable to any year since your GitHub account was created).
+
+## Insight cards
+
+Three auto-generated callouts summarize what changed recently:
+
+- **Score trend** - up/down movement and what drove it
+- **Busiest repository** - where review volume concentrates
+- **Top warnings** - the most frequent finding class this period
+
+## Reports
+
+Click **Report** on the Analytics page to download a Markdown report for the current scope (everything or a single repository). Reports include KPIs, trend data, severity breakdowns, and per-repo summaries - built for standups, postmortems, and audits.
+
+## The Reviews list
+
+The [Reviews](/reviews) page is the raw feed behind the analytics:
+
+- Every review with status (**Completed / Failed / In progress**), score, and summary
+- Filter by repository and status
+- Expand any row to read full findings
+- Upvote / downvote individual findings - signal that tunes future reviews
+- Kick off a fix PR from review findings
+
+<Callout title="Data freshness">
+  Analytics update as reviews complete - usually within seconds of a review posting to GitHub. Failed review runs are counted separately and never skew your average score.
+</Callout>
