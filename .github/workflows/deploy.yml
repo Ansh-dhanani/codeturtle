@@ -1,10 +1,12 @@
 name: Deploy
 
-# Deployment workflow: runs on push to main and deploys to Vercel when token is configured.
+# Manual, production deploy via the Vercel CLI.
+# NOTE: the primary deploy path is the Vercel GitHub integration
+# (push to main / PRs deploy automatically). This workflow is a
+# manual fallback for when you want to force-deploy from GitHub.
 
 on:
-  push:
-    branches: [ main ]
+  workflow_dispatch: {}
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -12,52 +14,62 @@ concurrency:
 
 jobs:
   deploy:
-    name: Deploy to Vercel
+    name: Deploy to Vercel (manual)
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    if: github.ref == 'refs/heads/main'
     steps:
+      - name: Check secrets are configured
+        id: guard
+        run: |
+          if [ -z "${{ secrets.VERCEL_TOKEN }}" ]; then
+            echo "VERCEL_TOKEN is not set - add it to repo secrets to enable manual deploys." >> "$GITHUB_STEP_SUMMARY"
+            echo "token_missing=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "token_missing=false" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
-        with:
-          bun-version: '1.0.0'
-
-      - name: Cache Bun
+      - name: Cache dependencies
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.bun
-            .bun
-          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lockb') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
 
       - name: Install dependencies
-        run: bun install
+        run: bun install --frozen-lockfile
 
-      - name: Build
-        run: bun run --if-present build
-
-      - name: Deploy to Vercel (official action)
+      - name: Pull Vercel environment
+        run: npx vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-        run: |
-          if [ -z "$VERCEL_TOKEN" ]; then
-            echo "VERCEL_TOKEN not configured; skipping deployment."
-            exit 0
-          fi
-          echo "Installing Vercel CLI..."
-          npm install -g vercel@latest
-          echo "Deploying to Vercel..."
-          npx vercel --prod --token "$VERCEL_TOKEN" --confirm
-        shell: bash
+
+      - name: Build for production
+        run: npx vercel build --prod --token="$VERCEL_TOKEN"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Deploy to production
+        run: npx vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}

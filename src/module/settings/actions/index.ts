@@ -7,6 +7,7 @@ import { deleteWebhook } from "@/module/github/github";
 import {
   normalizeCustomPrompt,
   normalizeRepoReviewModes,
+  normalizeReviewIgnoreGlobs,
   serializeRepoReviewModes,
   type RepoReviewStyle,
 } from "@/module/repository/lib/settings";
@@ -176,6 +177,7 @@ export async function getConnectedRepositories() {
         reviewStyle: true,
         memesEnabled: true,
         customPrompt: true,
+        reviewIgnoreGlobs: true,
         aiProvider: true,
         aiModel: true,
         reviewMode: true,
@@ -278,6 +280,7 @@ export async function updateRepositoryBehaviorSettings(data: {
   reviewModes?: RepoReviewStyle[];
   memesEnabled: boolean;
   customPrompt?: string | null;
+  reviewIgnoreGlobs?: string | null;
   aiProvider?: string | null;
   aiModel?: string | null;
 }) {
@@ -309,6 +312,8 @@ export async function updateRepositoryBehaviorSettings(data: {
       }
     }
 
+    const reviewIgnoreGlobs = normalizeReviewIgnoreGlobs(data.reviewIgnoreGlobs);
+
     const provider = data.aiProvider?.trim() || null;
     const model = data.aiModel?.trim() || null;
 
@@ -335,6 +340,7 @@ export async function updateRepositoryBehaviorSettings(data: {
         ),
         memesEnabled: Boolean(data.memesEnabled),
         customPrompt,
+        reviewIgnoreGlobs,
         aiProvider: provider,
         aiModel: provider ? model : null,
       },

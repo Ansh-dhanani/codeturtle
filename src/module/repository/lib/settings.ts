@@ -16,6 +16,21 @@ export type RepoBehaviorSettings = {
   reviewMode: "auto" | "ask";
 };
 
+// Normalize a comma/newline separated list of ignore globs (e.g. "**/*.test.ts, docs/") to <= 500 chars.
+export function normalizeReviewIgnoreGlobs(value?: string | string[] | null): string | null {
+  if (!value) return null;
+  const raw = Array.isArray(value) ? value.join(",") : value;
+  const parts = raw
+    .split(/[\n,]/g)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .slice(0, 25);
+  if (parts.length === 0) return null;
+  const joined = parts.join(", ");
+  if (joined.length <= 500) return joined;
+  return joined.slice(0, 500);
+}
+
 export const DEFAULT_REPO_BEHAVIOR_SETTINGS: RepoBehaviorSettings = {
   reviewModes: ["balanced", "diagram"],
   reviewStyle: "balanced",

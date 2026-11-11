@@ -44,3 +44,5 @@ next-env.d.ts
 node_modules/.prisma/
 node_modules/@prisma/
 src/generated/
+# Diagramming-tool artifacts
+.mikk/

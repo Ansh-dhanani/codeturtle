@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/providers/theme-provider";
@@ -25,12 +25,27 @@ const spaceGrotesk = Space_Grotesk({
 
 const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#050b1a" },
+  ],
+  colorScheme: "light dark",
+};
+
 export const metadata: Metadata = {
   metadataBase: new URL(appUrl),
   title: {
     default: "CodeTurtle - Repository-aware AI Code Reviews for GitHub PRs",
     template: "%s | CodeTurtle",
   },
+  icons: {
+    icon: [
+      { url: "/codeturtle-logo-light.svg", type: "image/svg+xml", media: "(prefers-color-scheme: light)" },
+      { url: "/codeturtle-logo-dark.svg", type: "image/svg+xml", media: "(prefers-color-scheme: dark)" },
+    ],
+  },
+  manifest: "/manifest.webmanifest",
   description:
     "CodeTurtle reads your diff and the code around it. Repository-aware AI reviews catch real bugs, security issues, and architectural problems before they reach production. Integrates with GitHub in under a minute.",
   keywords: [
