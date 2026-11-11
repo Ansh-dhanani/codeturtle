@@ -4,8 +4,9 @@ import { logger } from "@/lib/logger";
 
 const FREE_REVIEWS_PER_PR_LIMIT = 5;
 
-// Comma-separated list of GitHub numeric account IDs (https://api.github.com/users/<login> .id)
-// that bypass plan limits. Intentionally env-only; no hardcoded names.
+// Comma-separated list of special (unlimited) users, usually GitHub logins,
+// matched case-insensitively against the user's accountId, name, email, or
+// email local-part. Example: "ansh-dhanani,some-other-user"
 function getSpecialLimitlessIdentifiers() {
   return (process.env.SPECIAL_LIMITLESS_USERS || "")
     .split(",")
