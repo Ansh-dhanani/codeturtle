@@ -101,6 +101,7 @@ model CodeReview {
   summary       String?
   files         Json?
   status        String   @default("pending")
+  checkRunId    Int?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
