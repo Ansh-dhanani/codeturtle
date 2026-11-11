@@ -9,10 +9,16 @@ let appOctokit: Octokit | null = null;
 function getAppOctokit(): Octokit {
   if (!appOctokit) {
     const appId = process.env.GITHUB_APP_ID;
-    const privateKey = process.env.GITHUB_APP_PRIVATE_KEY;
+    const privateKey = (process.env.GITHUB_APP_PRIVATE_KEY ?? "")
+      // Vercel env inputs commonly flatten newlines - accept \n escape sequences too
+      .replace(/\\n/g, "\n")
+      .trim();
 
     if (!appId || !privateKey) {
       throw new Error("GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY must be set");
+    }
+    if (!privateKey.includes("-----BEGIN") || !privateKey.includes("-----END")) {
+      throw new Error("GITHUB_APP_PRIVATE_KEY is not a valid PEM: expected BEGIN/END markers");
     }
 
     appOctokit = new Octokit({
@@ -26,9 +32,10 @@ function getAppOctokit(): Octokit {
 export async function getInstallationOctokit(owner: string, repo: string): Promise<Octokit> {
   const app = getAppOctokit();
   const { data: installation } = await app.rest.apps.getRepoInstallation({ owner, repo });
+  const privateKey = (process.env.GITHUB_APP_PRIVATE_KEY ?? "").replace(/\\n/g, "\n").trim();
   return new Octokit({
     authStrategy: createAppAuth,
-    auth: { appId: process.env.GITHUB_APP_ID, privateKey: process.env.GITHUB_APP_PRIVATE_KEY, installationId: installation.id },
+    auth: { appId: process.env.GITHUB_APP_ID, privateKey, installationId: installation.id },
   });
 }
 
