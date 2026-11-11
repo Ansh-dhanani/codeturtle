@@ -27,6 +27,8 @@ export async function isSpecialLimitlessUser(userId: string): Promise<boolean> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
+      name: true,
+      email: true,
       accounts: {
         select: {
           providerId: true,
@@ -42,8 +44,11 @@ export async function isSpecialLimitlessUser(userId: string): Promise<boolean> {
   if (identifiers.length === 0) return false;
 
   const githubAccountId = user.accounts.find((account) => account.providerId === "github")?.accountId;
+  const emailLocalPart = user.email?.split("@")[0];
 
-  return isSpecialIdentifierMatch(githubAccountId, identifiers);
+  return [user.name, user.email, emailLocalPart, githubAccountId].some((value) =>
+    isSpecialIdentifierMatch(value, identifiers),
+  );
 }
 
 function getNextMonthResetDate(base = new Date()) {
