@@ -28,8 +28,8 @@ export default function SupportPageContent() {
         </Link>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="space-y-2">
-            <h1 className="font-heading text-4xl font-extrabold leading-[0.95] tracking-tight text-foreground md:text-6xl">
-              Need<br />help?
+            <h1 className="font-heading text-4xl font-extrabold leading-[0.95] tracking-tight text-foreground md:text-5xl">
+              Need help?
             </h1>
             <p className="max-w-sm text-sm text-muted-foreground">
               Fast answers, real humans, no ticket queue. Most people are sorted in under 10 minutes.
