@@ -78,6 +78,46 @@ async function withPrismaRetry<T>(label: string, fn: () => Promise<T>): Promise<
     throw new Error(`Prisma retry exhausted for ${label}`);
 }
 
+function isOwnPullRequestChangesError(error: unknown): boolean {
+    if (!error || typeof error !== "object") return false;
+    const message = String((error as { message?: string }).message ?? "").toLowerCase();
+    const status = (error as { status?: number }).status;
+    return status === 422 && message.includes("own pull request");
+}
+
+/**
+ * GitHub forbids REQUEST_CHANGES on PRs authored by the token owner.
+ * Retry with COMMENT so self-reviews still get posted instead of failing.
+ */
+async function createReviewWithFallback(octokit: Octokit, params: {
+    owner: string;
+    repo: string;
+    pull_number: number;
+    body: string;
+    event: "REQUEST_CHANGES" | "COMMENT";
+    comments?: Array<{ path: string; line: number; body: string }>;
+}): Promise<"REQUEST_CHANGES" | "COMMENT"> {
+    try {
+        await octokit.rest.pulls.createReview(params);
+        return params.event;
+    } catch (err) {
+        if (params.event === "REQUEST_CHANGES" && isOwnPullRequestChangesError(err)) {
+            l.warn("GitHub forbids REQUEST_CHANGES on self-authored PRs; falling back to COMMENT", {
+                owner: params.owner,
+                repo: params.repo,
+                prNumber: params.pull_number,
+            });
+            const ownPrNote = params.body.replace(
+                "🔴 Changes Requested",
+                "🟡 Comment (GitHub does not allow Request Changes on the PR author's own PR)",
+            );
+            await octokit.rest.pulls.createReview({ ...params, body: ownPrNote, event: "COMMENT" });
+            return "COMMENT";
+        }
+        throw err;
+    }
+}
+
 function isTransientReviewError(message: string): boolean {
     return /(timeout|timed out|econnreset|etimedout|503|502|504|rate limit|temporar|try again)/i.test(message);
 }
@@ -1129,7 +1169,7 @@ export const processPREvent = inngest.createFunction(
 
                 if (reviewComments.length > 0) {
                     try {
-                        await octokit.rest.pulls.createReview({
+                        const effectiveEvent = await createReviewWithFallback(octokit, {
                             owner,
                             repo,
                             pull_number: prNumber,
@@ -1137,7 +1177,7 @@ export const processPREvent = inngest.createFunction(
                             event: reviewEvent,
                             comments: reviewComments,
                         });
-                        l.info("PR review posted to GitHub", { owner, repo, prNumber, comments: reviewComments.length, event: reviewEvent });
+                        l.info("PR review posted to GitHub", { owner, repo, prNumber, comments: reviewComments.length, event: effectiveEvent });
                     } catch (reviewErr) {
                         const reviewErrorMessage = reviewErr instanceof Error ? reviewErr.message : "Unknown error";
                         const reviewErrorStatus = (reviewErr as { status?: number } | undefined)?.status;
@@ -1156,7 +1196,7 @@ export const processPREvent = inngest.createFunction(
                             error: reviewErrorMessage,
                         });
 
-                        await octokit.rest.pulls.createReview({
+                        await createReviewWithFallback(octokit, {
                             owner,
                             repo,
                             pull_number: prNumber,
