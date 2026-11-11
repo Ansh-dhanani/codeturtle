@@ -65,10 +65,10 @@ export function ModelPicker({
         </button>
       </PopoverTrigger>
 
-      <PopoverContent align="start" className="w-80 p-0 sm:w-96">
+      <PopoverContent align="start" side="bottom" sideOffset={8} className="z-30 w-80 p-0 sm:w-96">
         <Command>
           <CommandInput placeholder="Type to search models…" />
-          <CommandList className="max-h-80">
+          <CommandList className="max-h-[min(56vh,440px)]">
             <CommandEmpty>No models match.</CommandEmpty>
             <CommandGroup>
               {models.map((model) => {
