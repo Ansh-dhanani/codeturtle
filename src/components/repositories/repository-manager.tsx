@@ -622,7 +622,7 @@ function RepoSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-xl">
+      <SheetContent className="w-full sm:max-w-2xl">
         <SheetHeader>
           <SheetTitle>{repo.name}</SheetTitle>
           <SheetDescription>
@@ -631,20 +631,20 @@ function RepoSheet({
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex min-h-0 flex-1 overflow-y-auto px-4 py-6 space-y-6">
+        <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 py-5">
           {/* Review mode */}
-          <div className="space-y-2">
-            <Label className="text-xs uppercase text-muted-foreground">
+          <div className="flex flex-col gap-2 border-t pt-4">
+            <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">
               Review mode
             </Label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="flex flex-col gap-1.5">
               {([
-                { value: "auto", label: "Auto - review on PR open" },
-                { value: "ask", label: "Ask - wait for confirmation" },
+                { value: "auto", label: "Auto (review on PR open)" },
+                { value: "ask", label: "Ask (confirm before review)" },
               ] as const).map(({ value, label }) => (
                 <label
                   key={value}
-                  className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2.5 hover:bg-muted/50 ${
+                  className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 hover:bg-muted/50 ${
                     merged.reviewMode === value ? "border-primary bg-primary/5" : ""
                   }`}
                 >
@@ -656,24 +656,24 @@ function RepoSheet({
                     onChange={() => update({ reviewMode: value })}
                     className="accent-primary"
                   />
-                  <span className="text-sm">{label}</span>
+                  <span className="text-xs leading-tight">{label}</span>
                 </label>
               ))}
             </div>
           </div>
 
           {/* Review behavior */}
-          <div className="space-y-2">
-            <Label className="text-xs uppercase text-muted-foreground">
+          <div className="flex flex-col gap-2 border-t pt-4">
+            <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">
               Review style
             </Label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="flex flex-col gap-1.5">
               {REPO_REVIEW_STYLE_OPTIONS.map((style) => {
                 const checked = merged.reviewModes.includes(style);
                 return (
                   <label
                     key={style}
-                    className="flex cursor-pointer items-center gap-2 rounded-md border p-2.5 hover:bg-muted/50"
+                    className="flex cursor-pointer items-center gap-2 rounded-md border p-2 hover:bg-muted/50"
                   >
                     <Checkbox
                       checked={checked}
@@ -695,7 +695,7 @@ function RepoSheet({
                         });
                       }}
                     />
-                    <span className="text-sm">{STYLE_LABELS[style]}</span>
+                    <span className="text-xs leading-tight">{STYLE_LABELS[style]}</span>
                   </label>
                 );
               })}
@@ -717,7 +717,7 @@ function RepoSheet({
           </label>
 
           {/* Custom prompt */}
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2 border-t pt-4">
             <div className="flex items-center justify-between">
               <Label htmlFor={`prompt-${key}`} className="text-xs uppercase text-muted-foreground">
                 Custom instructions
@@ -754,7 +754,7 @@ function RepoSheet({
           </div>
 
           {/* Ignore paths */}
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2 border-t pt-4">
             <Label htmlFor={`ignore-${key}`} className="text-xs uppercase text-muted-foreground">
               Ignore paths (globs)
             </Label>
@@ -772,7 +772,7 @@ function RepoSheet({
           </div>
 
           {/* AI provider */}
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2 border-t pt-4">
             <div className="flex items-center justify-between">
               <Label className="text-xs uppercase text-muted-foreground">
                 AI provider (this repository only)
