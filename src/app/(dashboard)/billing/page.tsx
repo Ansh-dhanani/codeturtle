@@ -23,29 +23,25 @@ export default function BillingPage() {
   const handleSubscribe = async (plan: string) => {
     setProcessing(plan);
     trackEvent(AnalyticsEvents.checkoutStarted, { plan });
-    try {
-      const { url } = await startCheckout(plan);
-      window.location.href = url;
-      return; // navigating away
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to start checkout");
-    } finally {
+    const result = await startCheckout(plan);
+    if (!result.ok) {
+      toast.error(result.error);
       setProcessing(null);
+      return;
     }
+    window.location.href = result.data.url;
   };
 
   const handleManage = async () => {
     setProcessing("portal");
     trackEvent(AnalyticsEvents.billingPortalOpened);
-    try {
-      const { url } = await openCustomerPortal();
-      window.location.href = url;
-      return;
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to open billing portal");
-    } finally {
+    const result = await openCustomerPortal();
+    if (!result.ok) {
+      toast.error(result.error);
       setProcessing(null);
+      return;
     }
+    window.location.href = result.data.url;
   };
 
   if (isLoading) {

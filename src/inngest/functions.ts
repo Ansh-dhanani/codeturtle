@@ -78,46 +78,6 @@ async function withPrismaRetry<T>(label: string, fn: () => Promise<T>): Promise<
     throw new Error(`Prisma retry exhausted for ${label}`);
 }
 
-function isOwnPullRequestChangesError(error: unknown): boolean {
-    if (!error || typeof error !== "object") return false;
-    const message = String((error as { message?: string }).message ?? "").toLowerCase();
-    const status = (error as { status?: number }).status;
-    return status === 422 && message.includes("own pull request");
-}
-
-/**
- * GitHub forbids REQUEST_CHANGES on PRs authored by the token owner.
- * Retry with COMMENT so self-reviews still get posted instead of failing.
- */
-async function createReviewWithFallback(octokit: Octokit, params: {
-    owner: string;
-    repo: string;
-    pull_number: number;
-    body: string;
-    event: "REQUEST_CHANGES" | "COMMENT";
-    comments?: Array<{ path: string; line: number; body: string }>;
-}): Promise<"REQUEST_CHANGES" | "COMMENT"> {
-    try {
-        await octokit.rest.pulls.createReview(params);
-        return params.event;
-    } catch (err) {
-        if (params.event === "REQUEST_CHANGES" && isOwnPullRequestChangesError(err)) {
-            l.warn("GitHub forbids REQUEST_CHANGES on self-authored PRs; falling back to COMMENT", {
-                owner: params.owner,
-                repo: params.repo,
-                prNumber: params.pull_number,
-            });
-            const ownPrNote = params.body.replace(
-                "🔴 Changes Requested",
-                "🟡 Comment (GitHub does not allow Request Changes on the PR author's own PR)",
-            );
-            await octokit.rest.pulls.createReview({ ...params, body: ownPrNote, event: "COMMENT" });
-            return "COMMENT";
-        }
-        throw err;
-    }
-}
-
 function isTransientReviewError(message: string): boolean {
     return /(timeout|timed out|econnreset|etimedout|503|502|504|rate limit|temporar|try again)/i.test(message);
 }
@@ -269,26 +229,13 @@ async function getPreferredOctokit(owner: string, repo: string, userId: string):
         const { getInstallationOctokit } = await import("@/lib/github-app");
         return await getInstallationOctokit(owner, repo);
     } catch (err) {
-        l.warn("GitHub App auth unavailable; using user OAuth token", {
-            owner,
-            repo,
-            userId,
-            error: (err as Error).message,
-        });
-
-        const account = await prisma.account.findFirst({
-            where: {
-                userId,
-                providerId: "github",
-            },
-            select: { accessToken: true },
-        });
-
-        if (!account?.accessToken) {
-            throw new Error("No usable GitHub credentials found for this repository.");
-        }
-
-        return new Octokit({ auth: account.accessToken });
+        const reason = err instanceof Error ? err.message : String(err);
+        throw new Error(
+            `GitHub App auth failed for ${owner}/${repo}: ${reason}. ` +
+            "Install the CodeTurtle-bot app on this repository (https://github.com/apps/codeturtle-bot) " +
+            "and ensure GITHUB_APP_PRIVATE_KEY (full PEM) and GITHUB_APP_ID are set in Vercel. " +
+            "App auth is required so reviews post as the bot and can REQUEST_CHANGES on your PRs.",
+        );
     }
 }
 
@@ -989,6 +936,22 @@ export const processPREvent = inngest.createFunction(
                 );
             })
 
+            await step.run("Update progress: review generated", async () => {
+                await updateProgressComment({
+                    owner,
+                    repo,
+                    prNumber,
+                    userId,
+                    commentId: progressCommentId,
+                    status: "Status: Review generated - preparing to post to GitHub...",
+                    behaviorSettings,
+                    humorDedupeKey,
+                    progressGifUrl,
+                    runId: reviewRunId,
+                    headSha: headSha || effectiveHeadSha,
+                });
+            });
+
             await step.run("Post review to GitHub PR", async () => {
                 const octokit = await getPreferredOctokit(owner, repo, userId);
 
@@ -1169,7 +1132,7 @@ export const processPREvent = inngest.createFunction(
 
                 if (reviewComments.length > 0) {
                     try {
-                        const effectiveEvent = await createReviewWithFallback(octokit, {
+                        await octokit.rest.pulls.createReview({
                             owner,
                             repo,
                             pull_number: prNumber,
@@ -1177,7 +1140,7 @@ export const processPREvent = inngest.createFunction(
                             event: reviewEvent,
                             comments: reviewComments,
                         });
-                        l.info("PR review posted to GitHub", { owner, repo, prNumber, comments: reviewComments.length, event: effectiveEvent });
+                        l.info("PR review posted to GitHub", { owner, repo, prNumber, comments: reviewComments.length, event: reviewEvent });
                     } catch (reviewErr) {
                         const reviewErrorMessage = reviewErr instanceof Error ? reviewErr.message : "Unknown error";
                         const reviewErrorStatus = (reviewErr as { status?: number } | undefined)?.status;
@@ -1196,7 +1159,7 @@ export const processPREvent = inngest.createFunction(
                             error: reviewErrorMessage,
                         });
 
-                        await createReviewWithFallback(octokit, {
+                        await octokit.rest.pulls.createReview({
                             owner,
                             repo,
                             pull_number: prNumber,
