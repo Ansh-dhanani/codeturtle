@@ -1,0 +1,1 @@
+ALTER TABLE "code_review" ADD COLUMN IF NOT EXISTS "checkRunId" INTEGER;

@@ -581,6 +581,7 @@ export const processPREvent = inngest.createFunction(
         };
         let progressCommentId: number | null = null;
         let processingReviewId: string | null = null;
+        let checkRunId: number | null = null;
         let behaviorSettings: RepoBehaviorSettings = DEFAULT_REPO_BEHAVIOR_SETTINGS;
         const reviewRunId = `review_${owner}_${repo}_${prNumber}_${Date.now().toString(36).slice(-4)}`;
         const humorDedupeKey = `review:${owner}/${repo}#${prNumber}`;
@@ -869,6 +870,41 @@ export const processPREvent = inngest.createFunction(
                         return null;
                     }
                     throw createErr;
+                }
+            });
+
+            // Create a GitHub Check Run so the review appears as a required status
+            // on the PR head commit. INNGEST only blocks the won-process replay, not
+            // the App identity - and the Checks API gives us the green/red/yellow icon.
+            checkRunId = await step.run("Create GitHub check run", async () => {
+                if (!effectiveHeadSha) return null;
+                const octokit = await getPreferredOctokit(owner, repo, userId);
+                try {
+                    const { data: checkRun } = await octokit.rest.checks.create({
+                        owner,
+                        repo,
+                        name: "CodeTurtle Review",
+                        head_sha: effectiveHeadSha,
+                        status: "in_progress",
+                        started_at: new Date().toISOString(),
+                        output: {
+                            title: "🐢 CodeTurtle is reviewing",
+                            summary: "Reading diff and connected repository to produce a repository-aware review.",
+                        },
+                    });
+                    if (processingReviewId) {
+                        await prisma.codeReview.update({
+                            where: { id: processingReviewId },
+                            data: { checkRunId: checkRun.id },
+                        });
+                    }
+                    return checkRun.id;
+                } catch (err) {
+                    l.warn("Failed to create GitHub check run; review will post without check status", {
+                        owner, repo, prNumber,
+                        error: err instanceof Error ? err.message : "Unknown error",
+                    });
+                    return null;
                 }
             });
 
@@ -1290,10 +1326,100 @@ export const processPREvent = inngest.createFunction(
                 }
             });
 
+            // Complete the GitHub check run with conclusion derived from the review.
+            await step.run("Complete GitHub check run", async () => {
+                if (!checkRunId) return;
+                try {
+                    const octokit = await getPreferredOctokit(owner, repo, userId);
+                    const hasCritical = review.issues.some((i) => i.severity === "critical");
+                    const conclusion: "success" | "neutral" | "action_required" | "failure" =
+                        hasCritical && review.overallScore < 5 ? "failure"
+                        : hasCritical ? "action_required"
+                        : review.overallScore >= 7 ? "success"
+                        : "neutral";
+
+                    const annotations: Array<{
+                        path: string;
+                        start_line: number;
+                        end_line: number;
+                        annotation_level: "notice" | "warning" | "failure";
+                        message: string;
+                        title?: string;
+                    }> = [];
+
+                    for (const issue of review.issues.slice(0, 50)) {
+                        const line = typeof issue.line === "number" ? Math.max(1, Math.trunc(issue.line)) : 1;
+                        annotations.push({
+                            path: issue.file || "unknown",
+                            start_line: line,
+                            end_line: line,
+                            annotation_level: issue.severity === "critical" ? "failure" : issue.severity === "warning" ? "warning" : "notice",
+                            title: issue.title.slice(0, 255),
+                            message: (issue.description || issue.title).slice(0, 64000),
+                        });
+                    }
+
+                    const tail = review.suggestions.slice(0, 25);
+                    for (const suggestion of tail) {
+                        annotations.push({
+                            path: suggestion.file || "unknown",
+                            start_line: 1,
+                            end_line: 1,
+                            annotation_level: "notice",
+                            title: `Suggestion: ${suggestion.title}`.slice(0, 255),
+                            message: suggestion.description.slice(0, 64000),
+                        });
+                    }
+
+                    await octokit.rest.checks.update({
+                        owner,
+                        repo,
+                        check_run_id: checkRunId,
+                        status: "completed",
+                        conclusion,
+                        completed_at: new Date().toISOString(),
+                        output: {
+                            title: `🐢 CodeTurtle review: ${review.overallScore}/10${hasCritical ? " · critical issues" : ""}`,
+                            summary: review.summary,
+                            annotations,
+                        },
+                    });
+                } catch (err) {
+                    l.warn("Failed to complete GitHub check run", {
+                        owner, repo, prNumber,
+                        error: err instanceof Error ? err.message : "Unknown error",
+                    });
+                }
+            });
+
             return review;
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : "Unknown error";
             l.error("PR review processing failed", err as Error, { owner, repo, prNumber, userId, action });
+
+            await step.run("Complete GitHub check run (failure)", async () => {
+                if (!checkRunId) return;
+                try {
+                    const octokit = await getPreferredOctokit(owner, repo, userId);
+                    await octokit.rest.checks.update({
+                        owner,
+                        repo,
+                        check_run_id: checkRunId,
+                        status: "completed",
+                        conclusion: "failure",
+                        completed_at: new Date().toISOString(),
+                        output: {
+                            title: "🐢 CodeTurtle review failed",
+                            summary: `Review could not be completed: ${errorMessage.slice(0, 500)}`,
+                        },
+                    });
+                } catch (checkErr) {
+                    l.warn("Failed to complete GitHub check run (failure path)", {
+                        owner, repo, prNumber,
+                        error: checkErr instanceof Error ? checkErr.message : "Unknown error",
+                    });
+                }
+            });
 
             if (processingReviewId) {
                 const lockId = processingReviewId;
