@@ -1,0 +1,57 @@
+---
+title: How it works
+description: The end-to-end review pipeline - from webhook to posted review
+---
+
+CodeTurtle's pipeline has four stages: **trigger, retrieve, generate, post**. Every stage is designed to keep the review grounded in your repository, not in the model's generic training data.
+
+<ArchitectureDiagram />
+
+## The review flow
+
+<Steps>
+  <Step>
+    **Trigger.** A `pull_request` event (opened / reopened / synchronized) hits your repository's webhook at `/api/webhooks/github`. The delivery is verified against the webhook secret, deduplicated, and matched to the connected repository.
+  </Step>
+  <Step>
+    **Diff compression.** The PR diff is fetched and compressed: binary files are skipped, huge lockfiles are summarized, and the patch is trimmed to fit the model's context window with room to spare.
+  </Step>
+  <Step>
+    **Repository indexing.** Each connected repository is indexed into a dedicated Pinecone vector index using code-aware chunking (1024 dimensions, cosine similarity). Re-indexing happens incrementally as the base branch moves.
+  </Step>
+  <Step>
+    **Retrieval (RAG).** The diff is embedded and matched against the index to pull in the conventions, definitions, and related code the change actually touches - so findings reflect *your* codebase.
+  </Step>
+  <Step>
+    **Generation.** The model receives the compressed diff plus retrieved context, and produces a structured review: issues, suggestions, positives, and a 0-10 overall score. Reviews request changes when critical issues are found; otherwise they post as comments.
+  </Step>
+  <Step>
+    **Judge pass.** A cheaper verification pass re-checks the findings and drops false positives - flagging only what survives review, so your time isn't spent on noise.
+  </Step>
+  <Step>
+    **Posting.** The review is posted to the PR as a full GitHub review with collapsible sections. Re-pushes trigger fresh reviews; each push is reviewed against the latest diff.
+  </Step>
+</Steps>
+
+## Review modes
+
+Repository review mode is configured per repo on the [Repositories](/repositories) page:
+
+- **Auto** - reviews start automatically on `pull_request` events.
+- **Ask** - CodeTurtle posts a confirmation checkbox on the PR; the review starts only when you check it. You can cancel an in-progress review the same way.
+
+## Mentions
+
+Comment `@codeturtle` in any PR to ask follow-up questions or request a fix. CodeTurtle replies in the same thread with a grounded answer drawn from the diff, the surrounding codebase, and the PR discussion.
+
+## Failure behavior
+
+CodeTurtle is designed to fail loudly-but-gracefully:
+
+- If the configured model is retired or errors out, it automatically falls back to another live model for the same provider, then to OpenRouter auto-routing, then to Google - reviews rarely fail for want of a model.
+- If **all** providers fail, CodeTurtle posts a plain-language comment on the PR explaining what happened instead of silence.
+- Webhook deliveries are deduplicated by GitHub's delivery ID; duplicate deliveries never double-post reviews.
+
+<Callout title="Limits apply on Free">
+  Free accounts get 20 reviews per month, up to 3 commits per PR. Pro removes all per-review limits. See [Billing & plans](/docs/billing).
+</Callout>

@@ -19,6 +19,7 @@ type ConnectVariables = {
 };
 
 import { authenticateWithGithub } from '@/utils/auth';
+import { trackEvent, AnalyticsEvents } from '@/lib/analytics';
 
 export const useConnectRepository = () => {
     const queryClient = useQueryClient();
@@ -51,8 +52,9 @@ export const useConnectRepository = () => {
 
             return { previousRepositories };
         },
-        onSuccess: () => {
+        onSuccess: (_data, variables) => {
             toast.success("Repository connected successfully!");
+            trackEvent(AnalyticsEvents.repositoryConnected, { repo: `${variables.owner}/${variables.repo}` });
             queryClient.invalidateQueries({ queryKey: ['repositories'] });
             queryClient.invalidateQueries({ queryKey: ['connected-repositories'] });
         },

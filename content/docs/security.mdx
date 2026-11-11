@@ -1,0 +1,65 @@
+---
+title: Security & privacy
+description: GitHub scopes, encryption, retention, and how CodeTurtle handles your code
+---
+
+Code access is the most sensitive thing CodeTurtle does. This page says exactly what we read, where it goes, and how it's protected.
+
+## GitHub access scopes
+
+| Scope | Why we request it |
+| --- | --- |
+| `read:user` / `user:email` | Identify your account and send you the review emails |
+| `repo` | Read PR diffs, commit metadata, and repository contents to produce reviews |
+| `admin:repo_hook` | Create and delete the signed webhook that triggers reviews |
+
+We never request `workflow`, `delete_repo`, `admin:org_hook`, or any write/merge scope. **CodeTurtle cannot push commits, approve PRs, or merge anything.** The `admin:repo_hook` scope is used solely to create and remove the review webhook, and nothing else.
+
+## How your code flows
+
+<Steps>
+  <Step>
+    Your repository's webhook sends CodeTurtle a signed PR event. We verify the signature before doing anything with it.
+  </Step>
+  <Step>
+    CodeTurtle fetches the diff and indexes your codebase into **its own Pinecone index** (`codeturtle-vector-embedding-v1`) with 1024-dimension `gemini-embedding-001` embeddings. Vectors are stored per-repository, isolated from other customers.
+  </Step>
+  <Step>
+    Diff + retrieved chunks are sent to your selected model provider to generate the review. Your raw code is never sent anywhere else.
+  </Step>
+  <Step>
+    The posted review contains findings and file/line references - not wholesale copies of your source.
+  </Step>
+</Steps>
+
+## API keys (BYOK)
+
+Your provider keys are encrypted with **AES-256-GCM** before storage. Decryption happens only at review time, in memory, and the key material is never logged, never sent to analytics, and never exposed to the browser.
+
+## Data we store
+
+| Data | Retention | Why |
+| --- | --- | --- |
+| GitHub profile (id, email, avatar) | While your account exists | Identity and auth |
+| Repository metadata | While connected | Reviews need to know what repo a webhook is for |
+| Review records (findings, scores) | Indefinite | Your reviews history and analytics |
+| Indexed embeddings | While connected; deleted on disconnect | RAG context |
+| Webhook secrets | While connected | Signature verification |
+
+Code content sent to the model is **not retained** beyond the model provider's own API behavior. We do not train anything on your code.
+
+## Model providers
+
+Generation happens at the provider you configured - OpenRouter, Google, Groq, Anthropic, or OpenAI. Each provider's data handling is governed by their own terms; CodeTurtle adds nothing on top.
+
+## Subprocessors
+
+GitHub (source of truth), Polar (billing), Pinecone (vector index), Google (embeddings), and your chosen model provider. No advertising networks, no data brokers, no analytics tools that read your code.
+
+## Deletion
+
+Disconnect a repository and its webhook, index, and stored configuration are deleted. Delete your CodeTurtle account and we remove your profile, review history, and embeddings on request within 30 days of your email to [dhananiansh01@gmail.com](mailto:dhananiansh01@gmail.com).
+
+## Reporting a vulnerability
+
+Email [dhananiansh01@gmail.com](mailto:dhananiansh01@gmail.com) with `security` in the subject. We practice coordinated disclosure and respond within 48 hours.

@@ -1,41 +1,109 @@
-import { pineconeClient, pineconeIndexName } from "@/lib/pinecone";
+import { getPineconeClient, pineconeIndexName } from "@/lib/pinecone";
 import { embed, embedMany } from "ai";
 import { google } from "@ai-sdk/google";
+import { withTimeout } from "@/lib/with-timeout";
 
 const BATCH_SIZE = 100;
 const MAX_CONTENT_LENGTH = 8000;
 
-function getPineconeIndex() {
+// Existing Pinecone index is dimension 1024; embeddings MUST match or upserts 400.
+const EMBEDDING_MODEL = process.env.GOOGLE_EMBEDDING_MODEL || "gemini-embedding-001";
+const EMBEDDING_FALLBACK_MODEL = "gemini-embedding-001";
+const EMBEDDING_DIM = 1024;
+
+/** Returns an embedding using the configured model, falling back to embedding-001 on failure. Dimension fixed to 1024 to match Pinecone index. */
+async function embedWithFallback(value: string) {
   try {
-    return pineconeClient.index(pineconeIndexName);
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes("404") || message.includes("not found")) {
-      console.warn(`Pinecone index "${pineconeIndexName}" not found - skipping RAG`);
-      return null;
-    }
-    throw error;
+    const { embedding } = await withTimeout(
+      () => embed({ model: google.textEmbeddingModel(EMBEDDING_MODEL), value, providerOptions: { google: { outputDimensionality: EMBEDDING_DIM } } }),
+      30_000,
+      "embedWithFallback",
+    );
+    return embedding;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[rag] ${EMBEDDING_MODEL} failed (${message}); falling back to ${EMBEDDING_FALLBACK_MODEL}`);
+    const { embedding } = await withTimeout(
+      () => embed({ model: google.textEmbeddingModel(EMBEDDING_FALLBACK_MODEL), value, providerOptions: { google: { outputDimensionality: EMBEDDING_DIM } } }),
+      30_000,
+      "embedWithFallback(fallback)",
+    );
+    return embedding;
   }
 }
 
+// Probes Pinecone for the index once per process; cached to avoid repeated 404's.
+let indexAvailablePromise: Promise<boolean> | null = null;
+async function isIndexAvailable(): Promise<boolean> {
+  if (!indexAvailablePromise) {
+    indexAvailablePromise = (async () => {
+      try {
+        const client = getPineconeClient();
+        if (!client) {
+          console.warn("[rag] PINECONE_DB_API_KEY not set; RAG disabled for this process");
+          return false;
+        }
+        await client.describeIndex(pineconeIndexName);
+        return true;
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(
+          `[rag] Pinecone index "${pineconeIndexName}" unavailable (${message}); RAG disabled for this process`,
+        );
+        return false;
+      }
+    })();
+  }
+  return indexAvailablePromise;
+}
+
+function getPineconeIndex() {
+  const client = getPineconeClient();
+  if (!client) {
+    throw new Error("Pinecone client is not configured (PINECONE_DB_API_KEY missing)");
+  }
+  return client.index(pineconeIndexName);
+}
+
 export async function generateEmbeddings(text: string) {
-  const { embedding } = await embed({
-    model: google.textEmbeddingModel("gemini-embedding-001"),
-    value: text,
-  });
-  return embedding;
+  return withTimeout(
+    () => embedWithFallback(text),
+    60_000,
+    "generateEmbeddings",
+  );
 }
 
 async function generateEmbeddingsBatch(texts: string[]): Promise<(number[] | null)[]> {
   try {
-    const { embeddings } = await embedMany({
-      model: google.textEmbeddingModel("gemini-embedding-001"),
-      values: texts.map(t => t.slice(0, 10000)), // Safe constraint per string
-    });
+    const { embeddings } = await withTimeout(
+      () =>
+        embedMany({
+          model: google.textEmbeddingModel(EMBEDDING_MODEL),
+          values: texts.map((t) => t.slice(0, 10000)),
+          providerOptions: { google: { outputDimensionality: EMBEDDING_DIM } },
+        }),
+      90_000,
+      "generateEmbeddingsBatch",
+    );
     return embeddings;
   } catch (error) {
-    console.error("Fatal error during embedMany batch generation:", error);
-    return new Array(texts.length).fill(null);
+    console.warn(`[rag] ${EMBEDDING_MODEL} batch embedding failed; falling back to ${EMBEDDING_FALLBACK_MODEL}`, error instanceof Error ? error.message : error);
+    try {
+      const { embeddings } = await withTimeout(
+        () =>
+          embedMany({
+            model: google.textEmbeddingModel(EMBEDDING_FALLBACK_MODEL),
+            values: texts.map((t) => t.slice(0, 10000)),
+            providerOptions: { google: { outputDimensionality: EMBEDDING_DIM } },
+          }),
+        90_000,
+        "generateEmbeddingsBatch(fallback)",
+      );
+      return embeddings;
+    } catch (fallbackError) {
+      console.error("[rag] Fallback embedding batch also failed:", fallbackError instanceof Error ? fallbackError.message : fallbackError);
+      return new Array(texts.length).fill(null);
+    }
   }
 }
 
@@ -43,11 +111,11 @@ export async function indexCodebase(
   repoId: string,
   files: { path: string; content: string }[],
 ) {
-  const index = getPineconeIndex();
-  if (!index) {
+  if (!(await isIndexAvailable())) {
     console.warn("Pinecone index unavailable - skipping indexing");
     return;
   }
+  const index = getPineconeIndex();
   const vectors: Array<{
     id: string;
     values: number[];
@@ -99,14 +167,14 @@ export async function indexCodebase(
 }
 
 export async function queryCodebase(query: string, repoId?: string, topK: number = 10) {
-  const index = getPineconeIndex();
-  if (!index) {
+  if (!(await isIndexAvailable())) {
     console.warn("Pinecone index unavailable - skipping RAG query");
     return [];
   }
+  const index = getPineconeIndex();
   const embedding = await generateEmbeddings(query);
 
-  const filter = repoId ? { repoId } : undefined;
+  const filter = repoId ? { repoId: { $eq: repoId } } : undefined;
 
   const results = await index.query({
     vector: embedding,
@@ -124,11 +192,26 @@ export async function queryCodebase(query: string, repoId?: string, topK: number
 }
 
 export async function deleteRepoVectors(repoId: string) {
-  const index = getPineconeIndex();
-  if (!index) {
+  if (!(await isIndexAvailable())) {
     console.warn("Pinecone index unavailable - skipping delete");
     return;
   }
-  await index.deleteMany({ filter: { repoId } });
-  console.log(`Deleted vectors for repo ${repoId}`);
+  const index = getPineconeIndex();
+
+  // Query filter works on this index; metadata-filter deletes are rejected.
+  // So: find matching IDs first, then delete them.
+  let ids: string[] = [];
+  async function collectIds() {
+    const matches = await (await index.query({ topK: 10000, vector: Array(1024).fill(0.01), filter: { repoId: { $eq: repoId } } })).matches ?? [];
+    ids = matches.map((m) => m.id ?? "").filter(Boolean) as string[];
+  }
+  await collectIds();
+
+  if (ids.length === 0) {
+    console.log(`No vectors to delete for repo ${repoId}`);
+    return;
+  }
+
+  await index.deleteMany(ids);
+  console.log(`Deleted ${ids.length} vector(s) for repo ${repoId}`);
 }

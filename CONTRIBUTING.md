@@ -1,6 +1,6 @@
 # Contributing to CodeTurtle
 
-Thank you for considering contributing — we welcome and appreciate your help!
+Thank you for considering contributing - we welcome and appreciate your help!
 
 Please read these guidelines before opening issues or PRs to make the process fast and friendly for everyone.
 
@@ -50,4 +50,4 @@ Follow `.env.example` instructions in `README.md`. Do not commit credentials or 
 If you find a security vulnerability, please report it privately via GitHub Security Advisories or by contacting the maintainer directly. Please do not open a public issue.
 
 ---
-Thanks again — we look forward to your contribution!
+Thanks again - we look forward to your contribution!

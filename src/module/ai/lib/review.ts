@@ -7,6 +7,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { queryCodebase } from "./rag";
 import { logger } from "@/lib/logger";
+import { withTimeout } from "@/lib/with-timeout";
 import {
   getReviewModesInstruction,
   normalizeCustomPrompt,
@@ -60,7 +61,7 @@ const CodeReviewSchema = z.object({
   architectureNotes: z.string().optional(),
   diagram: z.string().optional().transform(val => {
     if (!val) return val;
-    let parsed = val.replace(/\\n/g, '\n');
+    const parsed = val.replace(/\\n/g, '\n');
     const validLines = [];
     for (const line of parsed.split('\n')) {
       const trimmed = line.trim();
@@ -79,7 +80,12 @@ const CodeReviewSchema = z.object({
       }
       validLines.push(line);
     }
-    return validLines.join('\n').replace(/"/g, '').trim();
+    const candidate = validLines.join('\n').replace(/"/g, '').trim();
+    // Weak models sometimes emit prose instead of a Mermaid diagram - drop it.
+    if (!/flowchart|graph|sequenceDiagram|classDiagram|stateDiagram|erDiagram|timeline|journey|gitGraph/i.test(candidate)) {
+      return undefined;
+    }
+    return candidate;
   }),
 }).transform((data) => ({
   ...data,
@@ -90,13 +96,43 @@ const CodeReviewSchema = z.object({
   positives: Array.isArray(data.positives) ? data.positives : [],
 }));
 
+// Liberal schema for the post-generation judge pass. Tolerates noisy model
+// output by falling back to empty arrays / defaults rather than failing.
+const JudgeReviewSchema = z.object({
+  summary: z.string().catch(""),
+  overallScore: z.number().min(0).max(10).catch(5),
+  issues: z.array(ReviewIssueSchema).catch([]),
+  suggestions: z.array(ReviewSuggestionSchema).catch([]),
+  positives: z.array(z.string()).catch([]),
+  architectureNotes: z.string().optional(),
+  diagram: z.string().optional(),
+});
+
+/**
+ * Last-resort review synthesized when every provider attempt failed.
+ * Keeps the pipeline alive - the user still gets an informative comment
+ * explaining what happened instead of a bare "Review failed" with no summary.
+ */
+function buildOfflineReview(owner: string, repo: string, prNumber: number, reason: string): CodeReview {
+  const brief = reason.trim().replace(/\s+/g, " ").slice(0, 280);
+  return {
+    summary: `Automated review could not be completed right now (every configured provider failed - ${brief}). No findings were generated; please retry or check the PR settings. No code issues were verified.`,
+    overallScore: 0,
+    issues: [],
+    suggestions: [],
+    positives: [],
+    architectureNotes: undefined,
+    diagram: undefined,
+  };
+}
+
 type CodeReview = z.infer<typeof CodeReviewSchema>;
 type CodeReviewWithReviewer = CodeReview & {
   reviewerProvider: string;
   reviewerModel: string;
 };
 
-const REVIEW_MAX_TOKENS = 4096;
+const REVIEW_MAX_TOKENS = 8192;
 const REVIEW_LOW_CREDIT_MAX_TOKENS = 1200;
 const REVIEW_FILE_CONTEXT_LIMIT = 8;
 const REVIEW_EXTRA_CONTEXT_LIMIT = 4;
@@ -196,6 +232,204 @@ function parseChangedDiffContext(diff: string): ParsedDiffContext {
   }
 
   return { changedFiles, changedLinesByFile };
+}
+
+const DIFF_COMPRESSION_THRESHOLD = MAX_DIFF_CHARS; // 24000
+const HUNK_CONTEXT_LINES = 10;
+
+function isExcludedFromDeepReview(filename: string): boolean {
+  const p = filename.toLowerCase();
+  if (/(^|\/)\.yarn(\/|$)/.test(p)) return true;
+  if (/(^|\/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|composer\.lock|gemfile\.lock|poetry\.lock|pipfile\.lock|cargo\.lock|go\.sum|packages\.lock\.json|flake\.lock)$/.test(p)) return true;
+  if (/\.lock$/.test(p)) return true;
+  if (/\.(png|jpe?g|gif|webp|ico|bmp|tiff?|svg|pdf|zip|gz|tgz|bz2|7z|rar|woff2?|ttf|otf|eot|mp4|mov|webm|mp3|wav|avi|min\.js|min\.css|map)$/.test(p)) return true;
+  return false;
+}
+
+function splitDiffByFile(diff: string): Map<string, string> {
+  const sections = new Map<string, string>();
+  const lines = diff.split("\n");
+  let current: string[] | null = null;
+  let currentFile: string | null = null;
+
+  const flush = () => {
+    if (current && currentFile) {
+      sections.set(currentFile, current.join("\n"));
+    }
+  };
+
+  for (const line of lines) {
+    if (line.startsWith("diff --git ")) {
+      flush();
+      current = [line];
+      const match = line.match(/b\/(.+)$/);
+      currentFile = match ? normalizeFilePath(match[1]) : null;
+      continue;
+    }
+    if (current) current.push(line);
+  }
+  flush();
+  return sections;
+}
+
+// Keeps only hunks (all hunks contain changes) and trims long runs of context
+// lines down to ~`contextLines` lines around each changed line.
+function compressFileDiffSection(section: string, contextLines = HUNK_CONTEXT_LINES): string {
+  const lines = section.split("\n");
+  const out: string[] = [];
+  let i = 0;
+
+  // Keep file-level header lines (diff --git, index, ---, +++, etc.)
+  while (i < lines.length && !lines[i].startsWith("@@")) {
+    out.push(lines[i]);
+    i += 1;
+  }
+
+  while (i < lines.length) {
+    out.push(lines[i]); // @@ hunk header
+    i += 1;
+    const body: string[] = [];
+    while (i < lines.length && !lines[i].startsWith("@@") && !lines[i].startsWith("diff --git ")) {
+      body.push(lines[i]);
+      i += 1;
+    }
+
+    const changeIdx = new Set<number>();
+    body.forEach((line, idx) => {
+      if (line.startsWith("+") || line.startsWith("-")) changeIdx.add(idx);
+    });
+
+    const keep = new Set<number>();
+    for (const idx of changeIdx) {
+      for (let d = -contextLines; d <= contextLines; d += 1) {
+        const j = idx + d;
+        if (j >= 0 && j < body.length) keep.add(j);
+      }
+    }
+
+    let omitted = 0;
+    for (let j = 0; j < body.length; j += 1) {
+      if (keep.has(j) || changeIdx.size === 0) {
+        if (omitted > 0) {
+          out.push(`... (${omitted} unchanged line${omitted === 1 ? "" : "s"} omitted)`);
+          omitted = 0;
+        }
+        out.push(body[j]);
+      } else {
+        omitted += 1;
+      }
+    }
+    if (omitted > 0) {
+      out.push(`... (${omitted} unchanged line${omitted === 1 ? "" : "s"} omitted)`);
+    }
+  }
+
+  return out.join("\n");
+}
+
+type CompressedReviewContext = {
+  diffForPrompt: string;
+  statBlock: string;
+  excludedFiles: string[];
+  compressed: boolean;
+  includedFiles: string[];
+  truncatedFiles: string[];
+};
+
+function buildReviewContext(params: {
+  diff: string;
+  files: Array<{ filename: string; status: string; additions: number; deletions: number }>;
+  diffCharsBudget: number;
+}): CompressedReviewContext {
+  const { diff, files, diffCharsBudget } = params;
+
+  const totalAdditions = files.reduce((sum, f) => sum + (f.additions || 0), 0);
+  const totalDeletions = files.reduce((sum, f) => sum + (f.deletions || 0), 0);
+  const statBlock = [
+    "## Change Summary (git diff --stat)",
+    ...files.map((f) => `${f.filename} | +${f.additions} -${f.deletions}`),
+    `${files.length} file${files.length === 1 ? "" : "s"} changed, ${totalAdditions} additions(+), ${totalDeletions} deletions(-)`,
+  ].join("\n");
+
+  if (diff.length <= DIFF_COMPRESSION_THRESHOLD) {
+    logger.info("Review context: no compression needed", {
+      diffChars: diff.length,
+      threshold: DIFF_COMPRESSION_THRESHOLD,
+      includedFiles: files.length,
+    });
+    return {
+      diffForPrompt: diff.slice(0, diffCharsBudget),
+      statBlock,
+      excludedFiles: [],
+      compressed: false,
+      includedFiles: files.map((f) => f.filename),
+      truncatedFiles: [],
+    };
+  }
+
+  const sections = splitDiffByFile(diff);
+  const excludedFiles: string[] = [];
+  const includedSections: Array<{ filename: string; content: string }> = [];
+
+  for (const f of files) {
+    if (isExcludedFromDeepReview(f.filename)) {
+      excludedFiles.push(f.filename);
+      continue;
+    }
+    const section = sections.get(normalizeFilePath(f.filename));
+    if (section) {
+      includedSections.push({ filename: f.filename, content: compressFileDiffSection(section, HUNK_CONTEXT_LINES) });
+    }
+  }
+  // Include diff sections not present in the files list (defensive).
+  const knownFiles = new Set(files.map((f) => normalizeFilePath(f.filename)));
+  for (const [name, section] of sections) {
+    if (knownFiles.has(name)) continue;
+    if (isExcludedFromDeepReview(name)) {
+      excludedFiles.push(name);
+      continue;
+    }
+    includedSections.push({ filename: name, content: compressFileDiffSection(section, HUNK_CONTEXT_LINES) });
+  }
+
+  const budget = Math.min(diffCharsBudget, DIFF_COMPRESSION_THRESHOLD);
+  const truncatedFiles: string[] = [];
+  let assembled = includedSections.map((s) => s.content).join("\n");
+
+  if (assembled.length > budget) {
+    const perFileCap = Math.max(500, Math.floor(budget / Math.max(1, includedSections.length)));
+    assembled = includedSections
+      .map((s) => {
+        if (s.content.length <= perFileCap) return s.content;
+        truncatedFiles.push(s.filename);
+        return `${s.content.slice(0, perFileCap)}\n... (truncated ${s.content.length - perFileCap} chars)`;
+      })
+      .join("\n");
+    if (assembled.length > budget) {
+      assembled = `${assembled.slice(0, budget)}\n... (diff truncated)`;
+    }
+  }
+
+  const includedFiles = includedSections.map((s) => s.filename);
+  logger.info("Review context compressed", {
+    originalDiffChars: diff.length,
+    compressedDiffChars: assembled.length,
+    compressionRatio: Number((assembled.length / Math.max(1, diff.length)).toFixed(3)),
+    includedFiles: includedFiles.length,
+    truncatedFiles: truncatedFiles.length,
+    excludedFiles: excludedFiles.length,
+    truncatedFileNames: truncatedFiles.slice(0, 20),
+    excludedFileNames: excludedFiles.slice(0, 20),
+  });
+
+  return {
+    diffForPrompt: assembled,
+    statBlock,
+    excludedFiles,
+    compressed: true,
+    includedFiles,
+    truncatedFiles,
+  };
 }
 
 function isNearChangedLine(context: ParsedDiffContext, file: string, line?: number): boolean {
@@ -352,6 +586,96 @@ function sanitizeReviewOutput(
   };
 }
 
+async function judgeReviewIfPossible(
+  review: CodeReview,
+  context: {
+    owner: string;
+    repo: string;
+    prNumber: number;
+    prContextBlock: string;
+    diffExcerpt: string;
+    statBlock: string;
+  },
+): Promise<CodeReview> {
+  try {
+    const openRouterKey = process.env.OPENROUTER_API_KEY;
+    const judgeModel = openRouterKey
+      ? createOpenAI({ apiKey: openRouterKey, baseURL: "https://openrouter.ai/api/v1" })("openrouter/auto")
+      : google("gemini-2.5-flash");
+    const judgeModelName = openRouterKey ? "openrouter/auto" : "gemini-2.5-flash";
+
+    const judgePrompt = `You are a strict code-review judge. Given the pull request context and a generated code review (JSON), return an UPDATED review JSON containing ONLY the findings that are:
+(a) clearly grounded in the actual diff/code shown below,
+(b) actionable by the author,
+(c) not pure style nitpicks (unless the repository explicitly asked for style review).
+
+Remove any issue/suggestion that is generic, vague, speculative, duplicates another finding, or cannot be tied to a specific location in the diff. Do NOT invent new findings. Do NOT add issues that were not in the original review. Keep the "summary" and "overallScore" fields (you may keep them unchanged). "positives" should only keep specific, grounded positives. Empty arrays are fine.
+
+## Pull Request Context:
+${context.prContextBlock || "(none)"}
+
+${context.statBlock}
+
+## Diff Excerpt:
+\`\`\`diff
+${context.diffExcerpt}
+\`\`\`
+
+## Generated Review JSON:
+${JSON.stringify(review)}
+
+Return ONLY the updated JSON object.`;
+
+    const { object } = await withTimeout(
+      () =>
+        generateObject({
+          model: judgeModel,
+          system:
+            "You are a strict, impartial code-review judge. You filter false positives and weak findings from a generated code review. You never invent new findings. You always output valid JSON matching the schema.",
+          prompt: judgePrompt,
+          schema: JudgeReviewSchema,
+          maxOutputTokens: REVIEW_MAX_TOKENS,
+        }),
+      60_000,
+      "judgeReview",
+    );
+
+    const score = Number(object.overallScore);
+    const judged: CodeReview = {
+      summary: object.summary?.trim() ? object.summary.trim() : review.summary,
+      overallScore: Number.isFinite(score) ? Math.max(0, Math.min(10, score)) : review.overallScore,
+      issues: object.issues ?? [],
+      suggestions: object.suggestions ?? [],
+      positives: (object.positives ?? []).map((p) => p.trim()).filter((p) => p.length > 0),
+      architectureNotes: object.architectureNotes ?? review.architectureNotes,
+      diagram: object.diagram ?? review.diagram,
+    };
+
+    logger.info("Judge pass completed", {
+      owner: context.owner,
+      repo: context.repo,
+      prNumber: context.prNumber,
+      judgeModel: judgeModelName,
+      removedIssues: Math.max(0, review.issues.length - judged.issues.length),
+      removedSuggestions: Math.max(0, review.suggestions.length - judged.suggestions.length),
+      removedPositives: Math.max(0, review.positives.length - judged.positives.length),
+      remainingIssues: judged.issues.length,
+      remainingSuggestions: judged.suggestions.length,
+      remainingPositives: judged.positives.length,
+    });
+
+    return judged;
+  } catch (err) {
+    logger.warn("Judge pass failed; returning original review unchanged", {
+      owner: context.owner,
+      repo: context.repo,
+      prNumber: context.prNumber,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return review;
+  }
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -418,24 +742,29 @@ async function withPrismaRetry<T>(label: string, fn: () => Promise<T>): Promise<
   throw new Error(`Prisma retry exhausted for ${label}`);
 }
 
-const BASE_SYSTEM_PROMPT = `You are a senior software engineer conducting a thorough code review.
+const BASE_SYSTEM_PROMPT = `You are a world-class senior software engineer conducting a thorough code review - on par with CodeRabbit.
 
 Analyze the code for:
-1. Bugs and logical errors
-2. Security vulnerabilities
-3. Performance issues
-4. Code quality and maintainability
-5. Best practices and patterns
-6. Error handling
-7. Edge cases
+1. Bugs and logical errors (null/undefined derefs, off-by-one, race conditions, dead code)
+2. Security vulnerabilities (injection, auth missing, secret leakage, unsafe eval, prototype pollution)
+3. Performance issues (N+1 queries, unnecessary re-renders, blocking work on hot path)
+4. Error handling (swallowed errors, missing retry/backoff, unhandled promise rejections)
+5. Code quality (naming, single responsibility, cohesion, dead imports)
+6. Edge cases (empty states, boundary inputs, overflow, timezones)
+7. Type safety and best practices for the language/framework in use
 
-Be specific, actionable, and constructive. Reference exact file paths and line numbers when possible.
+Be specific, actionable, and constructive:
+- Reference exact file paths and line numbers whenever possible.
+- For every issue, supply a concrete, minimal suggested fix. If a fix changes code, include REAL code snippets in the suggestion (not pseudocode).
+- For "Suggestions", you MUST include working codeBefore and codeAfter (the exact snippet to replace and the exact replacement) whenever the change is mechanical. Only omit codeBefore/codeAfter when the suggestion is purely architectural/verbal and cannot be expressed as code.
+- Do NOT invent APIs, files, or functions that don't exist in the repository context. If unsure, say so in the issue description.
+- Prefer 2-5 high-impact, correct findings over a long list of nitpicks. Empty arrays are fine - an empty review is better than a padded one.
 
 Score guidelines:
-- 9-10: Excellent, production-ready
+- 9-10: Excellent, production-ready, ship it
 - 7-8: Good, minor improvements needed
-- 5-6: Acceptable, some issues to address
-- 3-4: Needs significant improvements
+- 5-6: Acceptable, address the listed issues before merging
+- 3-4: Needs significant work; block merge until issues are resolved
 - 1-2: Major problems, rewrite needed`;
 
 const JSON_OUTPUT_INSTRUCTIONS = `You must output a single strictly valid JSON object that matches the requested schema EXACTLY!
@@ -443,16 +772,18 @@ Do NOT wrap the JSON in markdown code blocks. Do NOT output any chain-of-thought
 CRITICAL JSON RULES:
 - Use double quotes for all strings and keys.
 - You can use standard newlines inside the diagram string.
-- Ensure all braces and quotes are perfectly closed.`;
+- Ensure all braces and quotes are perfectly closed.
+- Every string field must be present and non-empty when applicable; empty arrays are fine for issues/suggestions/positives.`;
 
 const DIAGRAM_OUTPUT_INSTRUCTIONS = `Always populate the "diagram" field with a Mermaid diagram that maps the architecture, data flow, or control flow of the changed code.
 Choose the most appropriate diagram type:
 - flowchart TD: component trees, module dependencies, call graphs
 - sequenceDiagram: request/response chains, API calls, async flows
 Rules:
-- Output raw Mermaid syntax only — no markdown fences.
+- Output raw Mermaid syntax only - no markdown fences.
 - Max 12 nodes; labels ≤4 words using real names.
-- Do NOT use double quotes inside Mermaid labels to avoid breaking JSON string bounds.`;
+- Do NOT use double quotes inside Mermaid labels to avoid breaking JSON string bounds.
+- Only include a diagram when it aids understanding; omit it otherwise.`;
 
 function escapeControlCharsInString(value: string): string {
   let result = "";
@@ -572,6 +903,19 @@ export async function generateCodeReview(params: {
       select: { aiProvider: true, aiModel: true, aiApiKey: true },
     }),
   );
+  // Keys are stored encrypted at rest - decrypt server-side; never sent back to the client.
+  // A bad key must not kill the whole review - fall back to no key (free models / server keys).
+  const { decryptApiKey } = await import("@/lib/crypto");
+  let decryptedUserKey: string | undefined;
+  try {
+    decryptedUserKey = decryptApiKey(user?.aiApiKey) ?? undefined;
+  } catch (err) {
+    logger.warn("Failed to decrypt user AI key; continuing without it", {
+      userId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    decryptedUserKey = undefined;
+  }
 
   const repositorySettings = await withPrismaRetry("load-repository-settings", () =>
     prisma.repository.findFirst({
@@ -595,8 +939,50 @@ export async function generateCodeReview(params: {
 
   const repoProvider = repositorySettings?.aiProvider || null;
   const repoModel = repositorySettings?.aiModel || null;
-  const selectedProvider = provider || repoProvider || user?.aiProvider || "google";
-  const selectedModel = (model || (repoProvider ? repoModel : null) || user?.aiModel || "gemini-2.5-flash") as string;
+  const explicitConfig = Boolean(provider || repoProvider || user?.aiProvider);
+  let selectedProvider = provider || repoProvider || user?.aiProvider || "google";
+  let selectedModel = (model || (repoProvider ? repoModel : null) || user?.aiModel || "gemini-2.5-flash") as string;
+  if (!explicitConfig) {
+    // No provider/model configured anywhere - use a stable default.
+    const { getDefaultReviewModel } = await import("@/lib/ai-catalog");
+    const def = getDefaultReviewModel();
+    selectedProvider = def.provider;
+    selectedModel = def.model;
+    logger.info("No AI model configured; using default", {
+      owner,
+      repo,
+      prNumber,
+      provider: def.provider,
+      model: def.model,
+    });
+  }
+
+  // Guard against stale persisted model slugs that no longer exist in the live catalog
+  if (selectedProvider === "openrouter") {
+    try {
+      const { getLiveCatalog } = await import("@/lib/ai-catalog");
+      const catalog = await getLiveCatalog();
+      const liveIds = catalog
+        .find((p) => p.id === "openrouter")
+        ?.models.map((m) => m.id) ?? [];
+      if (selectedModel !== "openrouter/auto" && !liveIds.includes(selectedModel)) {
+        logger.warn("Configured OpenRouter model not in live catalog; falling back to openrouter/auto", {
+          owner,
+          repo,
+          prNumber,
+          configured: selectedModel,
+          liveCount: liveIds.length,
+        });
+        selectedModel = "openrouter/auto";
+      }
+    } catch (catalogErr) {
+      logger.warn("Could not validate OpenRouter model against live catalog; keeping configured model", {
+        error: catalogErr instanceof Error ? catalogErr.message : "Unknown error",
+        configured: selectedModel,
+      });
+    }
+  }
+
   let normalizedSelectedModel = selectedModel;
   if (selectedProvider === "openrouter") {
     if (selectedModel === "moonshotai/kimi-k2:free") {
@@ -605,7 +991,7 @@ export async function generateCodeReview(params: {
       normalizedSelectedModel = "qwen/qwen3.6-plus:free";
     }
   }
-  const userApiKey = getProviderScopedApiKey(selectedProvider, user?.aiApiKey);
+  const userApiKey = getProviderScopedApiKey(selectedProvider, decryptedUserKey);
 
   let octokit: Octokit | null = null;
   try {
@@ -650,10 +1036,21 @@ export async function generateCodeReview(params: {
 
   logger.info("Fetching PR data for review", { owner, repo, prNumber });
 
-  const [diff, files] = await Promise.all([
+  const [diff, files, prMeta] = await Promise.all([
     getPRDiff(octokit, owner, repo, prNumber),
     getPRFiles(octokit, owner, repo, prNumber),
+    withTimeout(
+      () => octokit.rest.pulls.get({ owner, repo, pull_number: prNumber }),
+      30_000,
+      "fetchPullRequest",
+    ),
   ]);
+
+  const prTitle = prMeta?.data?.title?.trim() || "";
+  const prBody = (prMeta?.data?.body || "").trim().slice(0, 2000);
+  const prCommits = prMeta?.data?.commits ?? null;
+  const prBaseRef = prMeta?.data?.base?.ref ?? "";
+  const prHeadRef = prMeta?.data?.head?.ref ?? "";
 
   const changedFiles = files
     .map((f) => f.filename)
@@ -712,16 +1109,33 @@ export async function generateCodeReview(params: {
     }
   }
 
+  const prContextBlock = prTitle
+    ? `## Pull Request Context:
+Title: ${prTitle}
+Base: ${prBaseRef} → Head: ${prHeadRef}${prCommits != null ? `\nCommits: ${prCommits}` : ""}
+${prBody ? `\nDescription:\n${prBody}` : ""}`
+    : "";
+
+  const reviewContext = buildReviewContext({ diff, files, diffCharsBudget });
+  const excludedFilesBlock = reviewContext.excludedFiles.length > 0
+    ? `## Excluded from deep review (binary/lockfile/cache-like - do NOT review their contents, but mention them briefly in the summary):
+${reviewContext.excludedFiles.map((f) => `- ${f}`).join("\n")}
+`
+    : "";
+
   const userPrompt = `Review this pull request in the repository ${owner}/${repo}.
 
 ${contextChunks.length > 0 ? `
 ## Relevant Codebase Context:
 ${contextChunks.join("\n\n---\n\n")}
 ` : ""}
+${prContextBlock}
+${excludedFilesBlock}
+${reviewContext.statBlock}
 
 ## Pull Request Diff:
 \`\`\`diff
-${diff.slice(0, diffCharsBudget)}
+${reviewContext.diffForPrompt}
 \`\`\`
 
 ${files.length > 0 ? `
@@ -840,6 +1254,7 @@ Provide a structured review with specific issues, suggestions, and an overall sc
   try {
     ({ object } = await runReviewGeneration(aiModel));
   } catch (err) {
+    try {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
     const noEndpointError = /no endpoints found/i.test(errorMessage);
     const insufficientCreditsError = /requires more credits|fewer max_tokens|can only afford|max_tokens/i.test(errorMessage);
@@ -914,16 +1329,9 @@ Provide a structured review with specific issues, suggestions, and an overall sc
           baseURL: "https://openrouter.ai/api/v1",
         });
 
-        const fallbackModels = [
-          "openrouter/auto",
-          "qwen/qwen3-coder:free",
-          "stepfun/step-3.5-flash:free",
-          "openai/gpt-oss-20b:free",
-          "nvidia/nemotron-3-nano-30b-a3b:free",
-          "minimax/minimax-m2.5:free",
-          "qwen/qwen3.6-plus:free",
-          "meta-llama/llama-3.1-8b-instruct:free",
-        ];
+        // Fallback: the safe OpenRouter auto-router only. No ranking is applied -
+        // if the configured model fails, auto routes to whatever live model is available.
+        const orderedFallbacks: string[] = ["openrouter/auto"];
 
         let recovered = false;
         if (insufficientCreditsError) {
@@ -948,7 +1356,7 @@ Provide a structured review with specific issues, suggestions, and an overall sc
           }
         }
 
-        for (const fallbackModel of fallbackModels) {
+        for (const fallbackModel of orderedFallbacks) {
           if (recovered) break;
           if (fallbackModel === reviewerModel) continue;
 
@@ -1151,15 +1559,59 @@ Provide a structured review with specific issues, suggestions, and an overall sc
         logger.info("Fell back to Google after OpenAI model failure", { owner, repo, prNumber });
       }
     } else {
-      throw err;
+      object = buildOfflineReview(owner, repo, prNumber, errorMessage);
+    }
+    } catch (fallbackErr) {
+      // All recovery attempts themselves threw - synthesize the guaranteed review
+      const reason = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+      logger.warn("All provider fallbacks exhausted; synthesizing best-effort review", {
+        owner,
+        repo,
+        prNumber,
+        selectedProvider,
+        selectedModel: reviewerModel,
+        reason,
+      });
+      object = buildOfflineReview(owner, repo, prNumber, reason);
+      reviewerProvider = "internal";
+      reviewerModel = "offline-fallback";
     }
   }
 
-  const normalizedReview = sanitizeReviewOutput(object, {
+  let normalizedReview = sanitizeReviewOutput(object, {
     diffContext,
     changedFiles: changedFilesSet.size > 0 ? changedFilesSet : diffContext.changedFiles,
     reviewModes,
   });
+
+  const sanitizeParams = {
+    diffContext,
+    changedFiles: changedFilesSet.size > 0 ? changedFilesSet : diffContext.changedFiles,
+    reviewModes,
+  };
+  const judgedReview = await judgeReviewIfPossible(normalizedReview, {
+    owner,
+    repo,
+    prNumber,
+    prContextBlock,
+    diffExcerpt: reviewContext.diffForPrompt.slice(0, 12000),
+    statBlock: reviewContext.statBlock,
+  });
+  normalizedReview = sanitizeReviewOutput(judgedReview, sanitizeParams);
+
+  if (reviewContext.excludedFiles.length > 0) {
+    const mentionsExcluded = reviewContext.excludedFiles.some((f) =>
+      normalizedReview.summary.includes(f) || normalizedReview.summary.includes(f.split("/").pop() || f),
+    );
+    if (!mentionsExcluded) {
+      const listed = reviewContext.excludedFiles.slice(0, 10).join(", ");
+      const extra = reviewContext.excludedFiles.length > 10 ? ` and ${reviewContext.excludedFiles.length - 10} more` : "";
+      normalizedReview = {
+        ...normalizedReview,
+        summary: `${normalizedReview.summary} Also changed (not deeply reviewed): ${listed}${extra}.`,
+      };
+    }
+  }
 
   logger.info("AI review generated", {
     owner,

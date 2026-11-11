@@ -1,0 +1,14 @@
+{
+  "title": "CodeTurtle Docs",
+  "pages": [
+    "index",
+    "getting-started",
+    "how-it-works",
+    "models",
+    "custom-rules",
+    "analytics",
+    "billing",
+    "security",
+    "faq"
+  ]
+}

@@ -3,13 +3,17 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ExternalLink, Trash2, AlertTriangle, Save } from 'lucide-react';
+import Link from 'next/link';
+import { ExternalLink, Trash2, AlertTriangle, Save, Lock } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { ModelPicker } from '@/components/settings/model-picker';
+import { useSubscription } from '@/hooks/use-subscription';
+import { canUseCustomRulesFor } from '@/lib/billing';
 import { Textarea } from '@/components/ui/textarea';
 import {
   AlertDialog,
@@ -34,7 +38,7 @@ import {
   REPO_REVIEW_STYLE_OPTIONS,
   type RepoReviewStyle,
 } from '@/module/repository/lib/settings';
-import { AI_PROVIDERS } from '@/lib/ai-providers';
+import { useAvailableProviders } from "@/hooks/use-available-providers";
 
 type ConnectedRepository = {
   id: string;
@@ -76,6 +80,9 @@ function normalizeStyle(style: string): RepoReviewStyle {
 
 export function RepositoryList() {
   const queryClient = useQueryClient();
+  const { data: AI_PROVIDERS = [] } = useAvailableProviders();
+  const { data: subscription } = useSubscription();
+  const customRulesLocked = !canUseCustomRulesFor(subscription?.plan);
   const [disconnectAllOpen, setDisconnectAllOpen] = useState(false);
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -355,10 +362,19 @@ export function RepositoryList() {
                   </div>
 
                   <div className='space-y-2'>
-                    <Label>Custom prompt for this repository</Label>
+                    <div className='flex items-center justify-between'>
+                      <Label>Custom prompt for this repository</Label>
+                      {customRulesLocked && (
+                        <Badge variant='outline' className='gap-1 border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-600 dark:text-amber-400'>
+                          <Lock className='h-3 w-3' />
+                          Pro
+                        </Badge>
+                      )}
+                    </div>
                     <Textarea
                       value={draft.customPrompt}
                       onChange={(e) => {
+                        if (customRulesLocked) return;
                         const value = e.target.value;
                         setDrafts((prev) => ({
                           ...prev,
@@ -371,10 +387,19 @@ export function RepositoryList() {
                       placeholder='Example: prioritize security findings and include migration risks first.'
                       rows={3}
                       maxLength={2000}
+                      disabled={customRulesLocked}
+                      className={customRulesLocked ? 'opacity-60' : undefined}
                     />
-                    <p className='text-xs text-muted-foreground'>
-                      Appended to CodeTurtle instructions for this repository only.
-                    </p>
+                    {customRulesLocked ? (
+                      <p className='text-[10px] text-muted-foreground'>
+                        Custom rules are a <span className='font-semibold text-amber-600 dark:text-amber-400'>Pro feature</span>.{' '}
+                        <Link href='/billing' className='font-medium text-primary hover:underline'>Upgrade →</Link>
+                      </p>
+                    ) : (
+                      <p className='text-xs text-muted-foreground'>
+                        Appended to CodeTurtle instructions for this repository only.
+                      </p>
+                    )}
                   </div>
 
                   <div className='space-y-3'>
@@ -406,9 +431,10 @@ export function RepositoryList() {
                     {draft.aiProvider && (
                       <div className='space-y-2'>
                         <Label>AI Model</Label>
-                        <Select
-                          value={draft.aiModel || ''}
-                          onValueChange={(value) => {
+                        <ModelPicker
+                          models={AI_PROVIDERS.find((p) => p.id === draft.aiProvider)?.models || []}
+                          value={draft.aiModel || null}
+                          onChange={(value) => {
                             setDrafts((prev) => ({
                               ...prev,
                               [repo.id]: {
@@ -417,16 +443,8 @@ export function RepositoryList() {
                               },
                             }));
                           }}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder='Select model' />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(AI_PROVIDERS.find((p) => p.id === draft.aiProvider)?.models || []).map((m) => (
-                              <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                          placeholder="Select model"
+                        />
                       </div>
                     )}
                   </div>

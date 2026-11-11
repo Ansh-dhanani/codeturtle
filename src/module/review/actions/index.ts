@@ -31,6 +31,34 @@ export async function getReviews(params?: { repoFullName?: string; limit?: numbe
   }));
 }
 
+export async function submitReviewFeedback(params: {
+  reviewId: string;
+  findingKey: string;
+  rating: -1 | 1;
+  reason?: string;
+}) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const review = await prisma.codeReview.findFirst({
+    where: { id: params.reviewId, userId: session.user.id },
+    select: { id: true },
+  });
+  if (!review) throw new Error("Review not found");
+
+  const feedback = await prisma.reviewFeedback.create({
+    data: {
+      userId: session.user.id,
+      reviewId: review.id,
+      findingKey: params.findingKey,
+      rating: params.rating,
+      reason: params.reason?.trim().slice(0, 500) || null,
+    },
+  });
+
+  return { success: true, id: feedback.id };
+}
+
 export async function getReviewById(id: string) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");

@@ -1,0 +1,71 @@
+---
+title: Getting started
+description: Sign in with GitHub, connect your first repository, and trigger your first CodeTurtle review
+---
+
+This guide walks you from zero to a posted review in about five minutes.
+
+## Before you start
+
+<Accordions type="single">
+  <Accordion title="What permissions does CodeTurtle need?">
+    At sign-in, CodeTurtle requests the `read:user`, `user:email`, `repo`, and `admin:repo_hook` OAuth scopes. `repo` lets CodeTurtle read diffs and pull request metadata; `admin:repo_hook` lets it create the signed webhook that triggers reviews on push and PR events. CodeTurtle never pushes to your repository and never approves or merges PRs.
+  </Accordion>
+  <Accordion title="Which repositories can I connect?">
+    Any repository your GitHub account can access - public or private, personal or organization-owned. You pick the exact repositories to connect; CodeTurtle only touches those.
+  </Accordion>
+  <Accordion title="Do I need to install a GitHub App?">
+    No separate App installation is required. Reviews are wired up per-repository through a signed webhook created from your OAuth token. When you disconnect a repository, the webhook is deleted automatically.
+  </Accordion>
+</Accordions>
+
+## Step 1 - Sign in
+
+Go to [the login page](/login) and click **Continue with GitHub**. You will be redirected to GitHub to authorize the requested scopes, then back to your dashboard.
+
+<Callout title="Private repos stay private">
+  CodeTurtle reads pull request diffs and repository metadata solely to produce reviews. Nothing is published, shared, or used outside your account - see [Security & privacy](/docs/security).
+</Callout>
+
+## Step 2 - Connect a repository
+
+1. Open [Repositories](/repositories) in the dashboard.
+2. Click **Connect repository** and pick the repo from the list.
+3. CodeTurtle creates a webhook on that repository and starts indexing the codebase into a private vector index (1024-dimension embeddings, cosine similarity). Indexing usually takes under a minute for typical codebases.
+
+You can connect up to **5 repositories on Free**. Pro and Enterprise plans are unlimited.
+
+<Callout type="warn" title="Webhook permission">
+  If connecting fails with a permission error, your GitHub token is missing the `admin:repo_hook` scope. Sign out and sign in again, making sure to grant the webhook permission when GitHub asks.
+</Callout>
+
+## Step 3 - Configure review mode
+
+Each repository can review automatically or ask first:
+
+| Mode | Behavior |
+| --- | --- |
+| **Auto** | Reviews start automatically on every `pull_request` event (opened, reopened, synchronized) |
+| **Ask** | CodeTurtle posts a confirmation checkbox on the PR; the review starts only when someone checks it |
+
+You can also set per-repo **custom instructions**, review tone (Balanced / Professional / Short), and meme usage in the same **Configure** sheet. See [Custom rules](/docs/custom-rules).
+
+## Step 4 - Open a pull request
+
+Open (or re-open, or push to) a pull request on a connected repository. Within moments you will see:
+
+1. A **"review in progress"** comment appear on the PR.
+2. A full review posted with the overall score, issues, suggestions, and positives.
+3. The review listed on your [Reviews](/reviews) page with status, score, and findings.
+
+## Asking follow-up questions
+
+Comment `@codeturtle` on any PR - optionally with a question like `@codeturtle why is this failing the check?` - and CodeTurtle replies in the same thread with a grounded answer based on the diff, the surrounding code, and the PR discussion.
+
+## What's next
+
+<Cards>
+  <Card title="How it works" href="/docs/how-it-works" description="Understand the pipeline behind every review." />
+  <Card title="Models" href="/docs/models" description="Pick the model that reviews your code." />
+  <Card title="Analytics" href="/docs/analytics" description="Track scores and findings across all your repos." />
+</Cards>

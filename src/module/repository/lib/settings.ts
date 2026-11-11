@@ -13,6 +13,7 @@ export type RepoBehaviorSettings = {
   reviewStyle: RepoReviewStyle;
   memesEnabled: boolean;
   customPrompt: string | null;
+  reviewMode: "auto" | "ask";
 };
 
 export const DEFAULT_REPO_BEHAVIOR_SETTINGS: RepoBehaviorSettings = {
@@ -20,6 +21,7 @@ export const DEFAULT_REPO_BEHAVIOR_SETTINGS: RepoBehaviorSettings = {
   reviewStyle: "balanced",
   memesEnabled: true,
   customPrompt: null,
+  reviewMode: "auto",
 };
 
 const STYLE_SET = new Set<string>(REPO_REVIEW_STYLE_OPTIONS);

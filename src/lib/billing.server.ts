@@ -3,24 +3,23 @@ import { PLANS, type PlanName, type SubscriptionStatus } from "./billing";
 import { logger } from "@/lib/logger";
 
 const FREE_REVIEWS_PER_PR_LIMIT = 5;
-const DEFAULT_SPECIAL_LIMITLESS_IDENTIFIERS = ["ansh-dhanani"];
 
+// Comma-separated list of GitHub numeric account IDs (https://api.github.com/users/<login> .id)
+// that bypass plan limits. Intentionally env-only; no hardcoded names.
 function getSpecialLimitlessIdentifiers() {
-  const extra = (process.env.SPECIAL_LIMITLESS_USERS || "")
+  return (process.env.SPECIAL_LIMITLESS_USERS || "")
     .split(",")
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean);
-
-  return [...new Set([...DEFAULT_SPECIAL_LIMITLESS_IDENTIFIERS, ...extra])];
 }
 
 function normalizeIdentifier(value?: string | null) {
   return (value || "").trim().toLowerCase();
 }
 
-function isSpecialIdentifierMatch(candidate?: string | null, identifiers: string[] = getSpecialLimitlessIdentifiers()) {
+function isSpecialIdentifierMatch(candidate: string | null | undefined, identifiers: string[]) {
   const normalized = normalizeIdentifier(candidate);
-  if (!normalized) return false;
+  if (!normalized || identifiers.length === 0) return false;
   return identifiers.includes(normalized);
 }
 
@@ -28,8 +27,6 @@ export async function isSpecialLimitlessUser(userId: string): Promise<boolean> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
-      name: true,
-      email: true,
       accounts: {
         select: {
           providerId: true,
@@ -42,12 +39,11 @@ export async function isSpecialLimitlessUser(userId: string): Promise<boolean> {
   if (!user) return false;
 
   const identifiers = getSpecialLimitlessIdentifiers();
-  const emailLocalPart = user.email?.split("@")[0];
+  if (identifiers.length === 0) return false;
+
   const githubAccountId = user.accounts.find((account) => account.providerId === "github")?.accountId;
 
-  return [user.name, user.email, emailLocalPart, githubAccountId].some((value) =>
-    isSpecialIdentifierMatch(value, identifiers),
-  );
+  return isSpecialIdentifierMatch(githubAccountId, identifiers);
 }
 
 function getNextMonthResetDate(base = new Date()) {
@@ -178,6 +174,20 @@ export async function canConnectRepo(userId: string): Promise<boolean> {
   });
 
   return connectedCount < plan.repoLimit;
+}
+
+/** Custom review rules (custom prompts) are a paid-plan feature. */
+export async function canUseCustomRules(userId: string): Promise<boolean> {
+  if (await isSpecialLimitlessUser(userId)) return true;
+  const subscription = await getOrCreateSubscription(userId);
+  return subscription.plan !== "free";
+}
+
+/** Paid-plan gate for premium models (anthropic, paid slugs, etc.). Free users use free models only. */
+export async function canUsePaidModels(userId: string): Promise<boolean> {
+  if (await isSpecialLimitlessUser(userId)) return true;
+  const subscription = await getOrCreateSubscription(userId);
+  return subscription.plan !== "free";
 }
 
 export async function getSubscriptionStatus(userId: string): Promise<SubscriptionStatus> {

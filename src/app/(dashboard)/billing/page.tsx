@@ -2,14 +2,16 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { getUserSubscription } from "@/module/review/actions";
+import { startCheckout, openCustomerPortal } from "@/module/billing/actions";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PLANS } from "@/lib/billing";
-import { Check, CreditCard, ExternalLink, Loader2, TrendingUp } from "lucide-react";
+import { CreditCard, Loader2, TrendingUp, ExternalLink } from "lucide-react";
+import { PricingSection } from "@/components/pricing-section";
 import { toast } from "sonner";
 import { useState } from "react";
-import Link from "next/link";
+import { trackEvent, AnalyticsEvents } from "@/lib/analytics";
 
 export default function BillingPage() {
   const [processing, setProcessing] = useState<string | null>(null);
@@ -20,15 +22,27 @@ export default function BillingPage() {
 
   const handleSubscribe = async (plan: string) => {
     setProcessing(plan);
+    trackEvent(AnalyticsEvents.checkoutStarted, { plan });
     try {
-      const polarCheckoutUrl = process.env.NEXT_PUBLIC_POLAR_CHECKOUT_URL;
-      if (polarCheckoutUrl) {
-        window.location.href = `${polarCheckoutUrl}?metadata[plan]=${plan}`;
-      } else {
-        toast.error("Checkout not configured");
-      }
-    } catch {
-      toast.error("Failed to start checkout");
+      const { url } = await startCheckout(plan);
+      window.location.href = url;
+      return; // navigating away
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to start checkout");
+    } finally {
+      setProcessing(null);
+    }
+  };
+
+  const handleManage = async () => {
+    setProcessing("portal");
+    trackEvent(AnalyticsEvents.billingPortalOpened);
+    try {
+      const { url } = await openCustomerPortal();
+      window.location.href = url;
+      return;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to open billing portal");
     } finally {
       setProcessing(null);
     }
@@ -59,16 +73,20 @@ export default function BillingPage() {
             <CardDescription>Your active subscription</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center">
                 <span className="text-2xl font-bold capitalize">{currentPlan}</span>
                 <Badge variant={currentPlan === "free" ? "secondary" : "default"} className="ml-2">
                   {data?.status || "active"}
                 </Badge>
               </div>
               {currentPlan !== "free" && (
-                <Button disabled={processing === "portal"} variant="outline">
-                  <CreditCard className="h-4 w-4 mr-2" />
+                <Button disabled={processing === "portal"} variant="outline" onClick={handleManage}>
+                  {processing === "portal" ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <CreditCard className="h-4 w-4 mr-2" />
+                  )}
                   Manage
                 </Button>
               )}
@@ -107,65 +125,28 @@ export default function BillingPage() {
               <span className="text-sm font-medium">
                 {PLANS[currentPlan as keyof typeof PLANS]?.repoLimit === -1
                   ? "Unlimited"
-                  : `${PLANS[currentPlan as keyof typeof PLANS]?.repoLimit || 2} max`}
+                  : `${PLANS[currentPlan as keyof typeof PLANS]?.repoLimit || 5} max`}
               </span>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {currentPlan === "free" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Upgrade Your Plan</CardTitle>
-            <CardDescription>Get more reviews and repositories</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-4 md:grid-cols-2">
-              {(["pro", "team"] as const).map((plan) => {
-                const info = PLANS[plan];
-                return (
-                  <Card key={plan} className="border-2 hover:border-primary transition-colors">
-                    <CardHeader>
-                      <CardTitle className="flex items-center justify-between">
-                        {info.name}
-                        <span className="text-2xl font-bold">${info.price}/mo</span>
-                      </CardTitle>
-                      <CardDescription>{info.features.length} features included</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <ul className="space-y-2">
-                        {info.features.map((feature) => (
-                          <li key={feature} className="flex items-center gap-2 text-sm">
-                            <Check className="h-4 w-4 text-green-500 shrink-0" />
-                            {feature}
-                          </li>
-                        ))}
-                      </ul>
-                      <Button
-                        className="w-full"
-                        onClick={() => handleSubscribe(plan)}
-                        disabled={processing === plan}
-                      >
-                        {processing === plan ? (
-                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                        ) : null}
-                        Upgrade to {info.name}
-                      </Button>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="text-center">
-        <Link href="/pricing" className="text-primary hover:underline text-sm">
-          View all plans and features
-        </Link>
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Plans &amp; Pricing</CardTitle>
+          <CardDescription>Choose the plan that fits your review queue</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <PricingSection
+            currentPlan={currentPlan}
+            onSelectPlan={handleSubscribe}
+            processingPlan={processing}
+            heading="Choose your plan"
+            subheading="Start free - 20 reviews a month, no credit card. Pro launch price $4/mo (90% off), locked in forever as long as you stay subscribed."
+          />
+        </CardContent>
+      </Card>
     </div>
   );
 }

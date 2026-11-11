@@ -1,0 +1,62 @@
+---
+title: CodeTurtle Docs
+description: How CodeTurtle reviews your pull requests - setup, models, rules, billing, and analytics
+---
+
+CodeTurtle is a **repository-aware AI code reviewer** for GitHub pull requests. It doesn't just read the diff - it clones and indexes your codebase, pulls the context around your changes, and posts a structured, actionable review directly on the PR.
+
+<ArchitectureDiagram />
+
+## Quick start
+
+<Steps>
+  <Step>
+    **Sign in with GitHub.** CodeTurtle requests read access plus `admin:repo_hook` so it can register a webhook on each repository you connect.
+  </Step>
+  <Step>
+    **Connect a repository** from the [Repositories](/repositories) page. CodeTurtle creates a signed webhook on that repo automatically.
+  </Step>
+  <Step>
+    **Open a pull request.** The webhook fires, the pipeline runs, and a review lands on the PR - usually in under a minute.
+  </Step>
+</Steps>
+
+Or jump straight to [Getting started](/docs/getting-started) for the full walkthrough.
+
+## Explore the docs
+
+<Cards>
+  <Card title="Getting started" href="/docs/getting-started" description="Sign in, connect your first repository, and trigger your first review." />
+  <Card title="How it works" href="/docs/how-it-works" description="The end-to-end pipeline - from webhook to posted review." />
+  <Card title="Models" href="/docs/models" description="Default models, the live catalog, and bring-your-own keys." />
+  <Card title="Custom rules" href="/docs/custom-rules" description="Shape every review with repository-specific instructions." />
+  <Card title="Analytics & reports" href="/docs/analytics" description="Score trends, severity breakdowns, and exportable reports." />
+  <Card title="Billing & plans" href="/docs/billing" description="Free, Pro, and Enterprise - limits, upgrades, and invoices." />
+  <Card title="Security & privacy" href="/docs/security" description="Data handling, encryption, retention, and GitHub scopes." />
+  <Card title="FAQ" href="/docs/faq" description="Common questions about reviews, limits, and billing." />
+</Cards>
+
+## Why repository-aware reviews?
+
+Generic AI review tools comment on the diff in isolation. CodeTurtle grounds every finding in your actual codebase:
+
+- **Conventions are enforced, not guessed** - naming patterns, error handling, and architecture choices from your repo are part of the review context.
+- **Fewer false positives** - findings that conflict with your codebase's established patterns are filtered by a dedicated judge pass.
+- **Suggestions you can act on** - every issue references the file and line, with a concrete fix.
+
+## What a review contains
+
+Each posted review includes:
+
+| Section | What it is |
+| --- | --- |
+| **Overall score** | 0-10 quality signal for the change as reviewed |
+| **Issues** | Bugs, security concerns, and logic errors with file/line references |
+| **Suggestions** | Non-blocking improvements and refactoring ideas |
+| **Positives** | What the PR gets right - so good work gets reinforced |
+
+Reviews on PRs with critical issues request changes; everything else posts as a standard comment.
+
+<Callout title="Free while you evaluate">
+  The Free plan includes 20 reviews per month across 5 repositories - no credit card required. Start with [connect a repository](/repositories).
+</Callout>

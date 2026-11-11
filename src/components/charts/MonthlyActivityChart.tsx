@@ -7,19 +7,9 @@ import {
   YAxis,
   CartesianGrid,
   ResponsiveContainer,
-} from 'recharts'
-import {
-  ChartTooltip,
-  ChartTooltipContent,
-  ChartContainer,
-  type ChartConfig,
-} from '@/components/ui/chart'
-import {
   Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
+  Legend,
+} from 'recharts'
 import { useMemo } from 'react'
 import { Spinner } from '../ui/spinner'
 
@@ -35,38 +25,6 @@ interface MonthlyActivityChartProps {
   isLoading: boolean
 }
 
-const chartConfig = {
-  reviews: {
-    label: 'AI Reviews',
-    color: '#f59e0b',
-  },
-  prs: {
-    label: 'PRs',
-    color: '#10b981',
-  },
-} satisfies ChartConfig
-
-const CustomLegend = () => (
-  <TooltipProvider>
-    <div className="flex justify-center gap-4 text-xs pt-2">
-      {Object.values(chartConfig).map((item) => (
-        <Tooltip key={item.label}>
-          <TooltipTrigger asChild>
-            <div className="flex items-center gap-2 cursor-pointer">
-              <span
-                className="h-3 w-3 rounded-sm"
-                style={{ backgroundColor: item.color }}
-              />
-              <span className="text-muted-foreground">{item.label}</span>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent>{item.label}</TooltipContent>
-        </Tooltip>
-      ))}
-    </div>
-  </TooltipProvider>
-)
-//this is montly
 export function MonthlyActivityChart({
   data,
   isLoading,
@@ -75,82 +33,46 @@ export function MonthlyActivityChart({
 
   return (
     <div className="flex flex-col justify-between min-h-80">
-      {/* Chart Area */}
       <div className="flex-1">
         {isLoading ? (
           <div className="flex min-h-60 items-center justify-center text-sm text-muted-foreground">
             <Spinner className="mr-2" /> Loading monthly activity data...
           </div>
         ) : (
-          <ChartContainer config={chartConfig}>
+          <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart
-                data={chartData}
-                margin={{ top: 12, right: 16, left: 0, bottom: 20 }}
-              >
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  strokeOpacity={0.2}
-                  vertical={false}
+              <AreaChart data={chartData} margin={{ top: 12, right: 16, left: 0, bottom: 20 }}>
+                <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} vertical={false} />
+                <XAxis dataKey="name" height={24} tickLine={false} axisLine={false} fontSize={11} tick={{ fill: "var(--muted-foreground)" }} />
+                <YAxis width={32} tickLine={false} axisLine={false} fontSize={11} tick={{ fill: "var(--muted-foreground)" }} />
+                <Tooltip
+                  cursor={{ stroke: "var(--border)", strokeDasharray: "3 3" }}
+                  contentStyle={{
+                    background: "var(--card)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                    fontSize: 12,
+                  }}
+                  labelStyle={{ color: "var(--foreground)", fontWeight: 600 }}
                 />
-
-                <XAxis
-                  dataKey="name"
-                  height={24}
-                  tickLine={false}
-                  axisLine={false}
-                />
-
-                <YAxis
-                  width={32}
-                  tickLine={false}
-                  axisLine={false}
-                />
-
-                <ChartTooltip content={<ChartTooltipContent />} />
-
+                <Legend wrapperStyle={{ fontSize: 11 }} />
                 <defs>
                   <linearGradient id="prsGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#10b981" stopOpacity={0.8} />
                     <stop offset="80%" stopColor="#10b981" stopOpacity={0.1} />
                   </linearGradient>
-                  <linearGradient
-                    id="reviewsGradient"
-                    x1="0"
-                    y1="0"
-                    x2="0"
-                    y2="1"
-                  >
+                  <linearGradient id="reviewsGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.8} />
                     <stop offset="80%" stopColor="#f59e0b" stopOpacity={0.1} />
                   </linearGradient>
                 </defs>
-
-                <Area
-                  type="monotone"
-                  dataKey="reviews"
-                  stroke={chartConfig.reviews.color}
-                  fill="url(#reviewsGradient)"
-                  strokeWidth={2}
-                  dot={false}
-                />
-
-                <Area
-                  type="monotone"
-                  dataKey="prs"
-                  stroke={chartConfig.prs.color}
-                  fill="url(#prsGradient)"
-                  strokeWidth={2}
-                  dot={false}
-                />
+                <Area type="monotone" dataKey="reviews" stroke="#f59e0b" fill="url(#reviewsGradient)" strokeWidth={2} dot={false} name="AI Reviews" />
+                <Area type="monotone" dataKey="prs" stroke="#10b981" fill="url(#prsGradient)" strokeWidth={2} dot={false} name="PRs" />
               </AreaChart>
             </ResponsiveContainer>
-          </ChartContainer>
+          </div>
         )}
       </div>
-
-      {/* Legend */}
-      <CustomLegend />
     </div>
   )
 }

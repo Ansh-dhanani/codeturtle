@@ -1,0 +1,63 @@
+---
+title: Custom rules
+description: Shape every review with repository-specific instructions
+---
+
+Every repository can carry **custom instructions** that are appended to the system prompt for every review on that repo. This is how you teach CodeTurtle what matters to *your* team - security defaults, migration rules, API stability, naming, whatever you care about.
+
+## Where to set them
+
+On the [Repositories](/repositories) page, open a repo's **Configure** sheet and find **Custom instructions**:
+
+- Repository-scoped (not account-wide)
+- Capped at **2,000 characters**
+- **Pro / Enterprise only** - free users see the field locked
+
+<Callout type="warn" title="Pro feature">
+  Custom rules turn reviews from generic to opinionated. Free accounts can read this page but can't save rules - upgrade on [Billing](/billing) to unlock them.
+</Callout>
+
+## Writing effective rules
+
+Good rules are **checkable** and **specific**. "Review carefully" does nothing; "reject destructive migrations" does.
+
+| ❌ Weak | ✅ Strong |
+| --- | --- |
+| "Be careful with SQL" | "Flag any new raw SQL string concatenation; require parameterized queries or the query builder" |
+| "Follow our style guide" | "Public functions must have JSDoc with @param and @returns; new files need the license header" |
+| "Watch performance" | "No queries inside loops; use DataLoader or batch endpoints" |
+
+## Starter rule sets
+
+**Security-first backend**
+
+```text
+- All user input must be validated with zod at the boundary; no unchecked `req.body` access.
+- Flag any new raw SQL; prefer parameterized queries or the ORM.
+- Secrets must come from env vars; never log tokens or PII.
+```
+
+**Migration safety**
+
+```text
+- Migrations must be reversible. Reject destructive DROP COLUMN / TRUNCATE without an accompanying up-migration justification.
+- New columns on large tables need DEFAULT + backfill plan, no table rewrites.
+```
+
+**API stability**
+
+```text
+- Public REST routes must log request id and duration.
+- Breaking changes to /api/v1/* responses require a deprecation note in the PR description.
+```
+
+## Review tone & memes
+
+The same Configure sheet also sets:
+
+- **Review modes** - Balanced / Professional / Short (how much prose reviews carry)
+- **Memes in review** - keep, disable, or limit to shipping reviews only
+
+<Callout title="Changes apply immediately">
+  Rule changes take effect on the next review - no re-index required. Re-indexing only happens when the base branch moves.
+</Callout>

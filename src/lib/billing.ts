@@ -3,33 +3,40 @@ export const PLANS = {
     name: "Free",
     price: 0,
     reviewLimit: 20,
-    repoLimit: 2,
-    features: ["20 reviews/month", "5 reviews per PR", "Max 3 commits per PR review", "2 repositories", "Basic AI review", "Email support"],
+    repoLimit: 5,
+    features: ["20 reviews/month", "5 repositories", "5 reviews per PR", "3 commits per PR max", "AI code review", "Community support"],
   },
   pro: {
     name: "Pro",
-    price: 19,
-    reviewLimit: 100,
-    repoLimit: 20,
-    features: ["100 reviews/month", "20 repositories", "Advanced AI review", "Priority support", "PR diff analysis", "Custom rules"],
-  },
-  team: {
-    name: "Team",
-    price: 49,
-    reviewLimit: 500,
-    repoLimit: 100,
-    features: ["500 reviews/month", "100 repositories", "Advanced AI review", "Priority support", "PR diff analysis", "Custom rules", "Team collaboration", "SSO"],
+    price: 4,
+    reviewLimit: -1,
+    repoLimit: -1,
+    features: ["Unlimited reviews", "Unlimited repositories", "Unlimited reviews per PR", "Unlimited commits per PR", "Bring your own API keys", "Custom rules (custom prompts)", "Priority support"],
   },
   enterprise: {
     name: "Enterprise",
-    price: 149,
+    price: 49,
     reviewLimit: -1,
     repoLimit: -1,
-    features: ["Unlimited reviews", "Unlimited repositories", "Advanced AI review", "Dedicated support", "PR diff analysis", "Custom rules", "Team collaboration", "SSO", "SLA", "On-premise option"],
+    features: ["Unlimited reviews", "Unlimited repositories", "Unlimited reviews & commits per PR", "Custom rules (custom prompts)", "Priority support", "Everything in Pro + contact us for org onboarding"],
   },
 } as const;
 
 export type PlanName = keyof typeof PLANS;
+
+export function getPlan(plan?: string | null) {
+  return PLANS[(plan as PlanName) ?? "free"] ?? PLANS.free;
+}
+
+/** Repo limit for a plan; -1 means unlimited. */
+export function repoLimitFor(plan?: string | null): number {
+  return getPlan(plan).repoLimit;
+}
+
+/** Custom rules (custom review prompts) are a paid-plan feature. */
+export function canUseCustomRulesFor(plan?: string | null): boolean {
+  return (plan ?? "free") !== "free";
+}
 
 export type SubscriptionStatus = {
   plan: string;

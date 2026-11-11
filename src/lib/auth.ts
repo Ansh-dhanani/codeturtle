@@ -35,6 +35,14 @@ export { prisma };
 export const auth = betterAuth({
   baseURL: authBaseURL,
   trustedOrigins,
+  session: {
+    expiresIn: 60 * 60 * 24 * 30, // 30 days
+    updateAge: 60 * 60 * 24, // refresh session at most once a day
+    cookieCache: {
+      enabled: true,
+      maxAge: 5 * 60, // cache session lookup for 5 minutes
+    },
+  },
   advanced: {
     cookies: {
       state: {

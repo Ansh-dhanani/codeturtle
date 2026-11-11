@@ -421,7 +421,7 @@ export async function getHumorLines(
 }
 
 export function getSuccessHumorScenario(score: number, issuesCount: number): HumorScenario {
-  if (score < 5) return "success-critical";
+  if (score < 6 || issuesCount >= 3) return "success-critical";
   if (issuesCount === 0 && score >= 8) return "success-clean";
   return "success-warning";
 }

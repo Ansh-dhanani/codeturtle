@@ -52,7 +52,6 @@ export const AI_PROVIDERS = [
       { id: "openrouter/auto", name: "Auto Router", tier: "free" as const, description: "Automatically choose an available route" },
       { id: "qwen/qwen3-coder:free", name: "Qwen3 Coder 480B (free)", tier: "free" as const, description: "Strong coding-focused free model" },
       { id: "stepfun/step-3.5-flash:free", name: "Step 3.5 Flash (free)", tier: "free" as const, description: "Fast reasoning with long context" },
-      { id: "nvidia/nemotron-3-nano-30b-a3b:free", name: "Nemotron 3 Nano 30B (free)", tier: "free" as const, description: "Efficient free model for agent workflows" },
       { id: "minimax/minimax-m2.5:free", name: "MiniMax M2.5 (free)", tier: "free" as const, description: "General productivity and coding" },
       { id: "openai/gpt-oss-120b:free", name: "gpt-oss-120b (free)", tier: "free" as const, description: "Open-weight high-capacity free model" },
       { id: "openai/gpt-oss-20b:free", name: "gpt-oss-20b (free)", tier: "free" as const, description: "Low-latency open-weight free model" },

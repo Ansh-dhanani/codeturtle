@@ -43,7 +43,6 @@ export async function POST(req: Request) {
   const event = (req.headers.get('x-github-event') || '').toLowerCase();
   const delivery = req.headers.get('x-github-delivery') || '';
   const sig256 = req.headers.get('x-hub-signature-256') || '';
-  const sig1 = req.headers.get('x-hub-signature') || '';
 
   const buf = await req.arrayBuffer();
   const payload = Buffer.from(buf);
@@ -94,31 +93,36 @@ export async function POST(req: Request) {
   const candidateSecrets = [repoRecord?.hookSecret, process.env.GITHUB_WEBHOOK_SECRET]
     .filter((value, index, arr): value is string => Boolean(value) && arr.indexOf(value) === index);
 
-  if (repoRecord && candidateSecrets.length > 0) {
-    let signatureValid = false;
-
-    for (const secret of candidateSecrets) {
-      const computed256 = 'sha256=' + crypto.createHmac('sha256', secret).update(payload).digest('hex');
-      const computed1 = 'sha1=' + crypto.createHmac('sha1', secret).update(payload).digest('hex');
-      const valid256 = sig256 ? timingSafeCompare(sig256, computed256) : false;
-      const valid1 = sig1 ? timingSafeCompare(sig1, computed1) : false;
-
-      if (valid256 || valid1) {
-        signatureValid = true;
-        break;
-      }
-    }
-
-    if (!signatureValid) {
-      l.warn('Invalid webhook signature', { delivery });
-      return new Response('Invalid signature', { status: 401 });
-    }
-  } else if (!repoRecord) {
-    l.warn('Repo not found in DB, skipping signature verification', { delivery, hookId: parsedBody?.hook_id, fullName: parsedBody?.repository?.full_name });
-  } else if (candidateSecrets.length === 0) {
-    l.warn('No webhook secret found', { delivery });
+  if (candidateSecrets.length === 0) {
+    // Fail closed - never process an unverifiable webhook.
+    // (Repo record had no stored secret and no env fallback is set.)
+    l.warn('Webhook received but no secret is configured; ignoring event', {
+      delivery,
+      hookId: parsedBody?.hook_id,
+      fullName: parsedBody?.repository?.full_name,
+    });
+    return new Response(JSON.stringify({ handled: true, skipped: 'no_secret' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
+  let signatureValid = false;
+  for (const secret of candidateSecrets) {
+    const computed256 = 'sha256=' + crypto.createHmac('sha256', secret).update(payload).digest('hex');
+    const valid256 = sig256 ? timingSafeCompare(sig256, computed256) : false;
+    if (valid256) {
+      signatureValid = true;
+      break;
+    }
+  }
+
+  if (!signatureValid) {
+    l.warn('Invalid webhook signature', { delivery });
+    return new Response('Invalid signature', { status: 401 });
+  }
+
+  let processingError: unknown = null;
   const now = Date.now();
   if (delivery && registerAndCheckDuplicate(processedDeliveries, delivery, DELIVERY_TTL_MS, now)) {
     l.info("Skipping duplicate webhook delivery", { delivery, event });
@@ -135,6 +139,11 @@ export async function POST(req: Request) {
 
   const hasCodeTurtleMention = (text: string) =>
     /(^|\s)@(?:codeturtle|codeturtle-bot(?:\[bot\])?)(?=\s|$|[.,!?;:()])/i.test(text);
+
+  // Detects when someone checks "Yes, review this PR" inside a CodeTurtle
+  // confirmation prompt the bot posted to a PR (when Review mode = Ask).
+  const isReviewConfirmationChecked = (text: string) =>
+    /-\s*\[\s*x\s*\]\s*✅\s*\*\*Yes,\s*review this PR\*\*/i.test(text);
 
   if (event === 'pull_request') {
     try {
@@ -187,6 +196,7 @@ export async function POST(req: Request) {
         l.info('Enqueued PR review', { owner, repo, prNumber });
       }
     } catch (err) {
+      processingError = err;
       l.error('Error handling pull_request event', err as Error, { delivery });
     }
   }
@@ -218,32 +228,77 @@ export async function POST(req: Request) {
         delivery,
       });
 
-      if ((action === "created" || action === "edited") && owner && repo && prNumber && userId && commentId && isPRComment && hasMention && !isBotSender) {
-        const mentionEventKey = `mention:issue_comment:${owner}/${repo}#${prNumber}:${commentId}:${shortHash(commentBody)}`;
-        if (registerAndCheckDuplicate(processedEventKeys, mentionEventKey, EVENT_TTL_MS, now)) {
-          l.info("Skipping duplicate mention event (issue_comment)", { owner, repo, prNumber, commentId, action, delivery });
-          return new Response(JSON.stringify({ handled: true, skipped: "event_key_duplicate" }), {
+      if ((action === "created" || action === "edited") && owner && repo && prNumber && userId && commentId && isPRComment && !isBotSender) {
+        // Detect checkbox-based confirmation from CodeTurtle's awaiting-confirmation prompt
+        if (action === "edited" && isReviewConfirmationChecked(commentBody)) {
+          const confirmKey = `confirm:${owner}/${repo}#${prNumber}:${commentId}`;
+          if (registerAndCheckDuplicate(processedEventKeys, confirmKey, EVENT_TTL_MS, now)) {
+            l.info("Skipping duplicate review confirmation", { owner, repo, prNumber, commentId, delivery });
+          } else {
+            // Fetch fresh head SHA from GitHub so the review target is current
+            let freshHeadSha: string | undefined;
+            try {
+              const { Octokit } = await import("octokit");
+              const account = await prisma.account.findFirst({
+                where: { userId, providerId: "github" },
+                select: { accessToken: true },
+              });
+              const token = account?.accessToken;
+              if (token) {
+                const octokit = new Octokit({ auth: token });
+                const fresh = await octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
+                  owner,
+                  repo,
+                  pull_number: prNumber,
+                });
+                freshHeadSha = (fresh as unknown as { data: { head: { sha: string } } }).data.head.sha;
+              }
+            } catch (fetchErr) {
+              l.warn("Could not fetch fresh head SHA for confirmed review", {
+                owner, repo, prNumber,
+                error: fetchErr instanceof Error ? fetchErr.message : "Unknown error",
+              });
+            }
+            await inngest.send({
+              name: "pull_request.opened",
+              data: { owner, repo, prNumber, userId, action: "review_confirmed", headSha: freshHeadSha },
+            });
+            l.info("Review confirmed via checkbox; enqueuing code-review pipeline", { owner, repo, prNumber, commentId, delivery });
+          }
+          return new Response(JSON.stringify({ handled: true, action: "review_confirmed" }), {
             status: 200,
             headers: { "Content-Type": "application/json" },
           });
         }
 
-        await inngest.send({
-          name: "pull_request.mention",
-          data: {
-            owner,
-            repo,
-            prNumber,
-            userId,
-            commentId,
-            commentBody,
-            senderLogin,
-            source: "issue_comment",
-          },
-        });
-        l.info("Enqueued @codeturtle mention response", { owner, repo, prNumber, commentId, action });
+        if (hasMention) {
+          const mentionEventKey = `mention:issue_comment:${owner}/${repo}#${prNumber}:${commentId}:${shortHash(commentBody)}`;
+          if (registerAndCheckDuplicate(processedEventKeys, mentionEventKey, EVENT_TTL_MS, now)) {
+            l.info("Skipping duplicate mention event (issue_comment)", { owner, repo, prNumber, commentId, action, delivery });
+            return new Response(JSON.stringify({ handled: true, skipped: "event_key_duplicate" }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+
+          await inngest.send({
+            name: "pull_request.mention",
+            data: {
+              owner,
+              repo,
+              prNumber,
+              userId,
+              commentId,
+              commentBody,
+              senderLogin,
+              source: "issue_comment",
+            },
+          });
+          l.info("Enqueued @codeturtle mention response", { owner, repo, prNumber, commentId, action });
+        }
       }
     } catch (err) {
+      processingError = err;
       l.error("Error handling issue_comment event", err as Error, { delivery });
     }
   }
@@ -299,6 +354,7 @@ export async function POST(req: Request) {
         l.info("Enqueued @codeturtle mention response from review comment", { owner, repo, prNumber, commentId, action });
       }
     } catch (err) {
+      processingError = err;
       l.error("Error handling pull_request_review_comment event", err as Error, { delivery });
     }
   }
@@ -354,8 +410,19 @@ export async function POST(req: Request) {
         l.info("Enqueued @codeturtle mention response from pull_request_review", { owner, repo, prNumber, reviewId, action });
       }
     } catch (err) {
+      processingError = err;
       l.error("Error handling pull_request_review event", err as Error, { delivery });
     }
+  }
+
+  if (processingError) {
+    // Let GitHub redeliver - don't swallow failures behind a 200.
+    // Also undo the delivery dedup mark so the retry isn't filtered as a duplicate.
+    if (delivery) processedDeliveries.delete(delivery);
+    return new Response(JSON.stringify({ error: 'handler_failed' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   return new Response(JSON.stringify({ handled: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });

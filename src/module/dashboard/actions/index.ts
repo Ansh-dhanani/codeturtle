@@ -6,7 +6,7 @@ import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
 
-export async function getContributionGraph() {
+export async function getContributionGraph(year?: number) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) {
     throw new Error("Unauthorized");
@@ -18,7 +18,20 @@ export async function getContributionGraph() {
   const { data: user } = await new Octokit({
     auth: token,
   }).rest.users.getAuthenticated();
-  const calendar = await fetchUserContribution(token, user.login);
+
+  const now = new Date();
+  // Only years from GitHub account creation onward have contributions
+  const accountCreatedAt = user.created_at ? new Date(user.created_at) : null;
+  // Default to trailing 12 months; selector lets user pin a calendar year
+  const end = year ? (year === now.getFullYear() ? new Date(now) : new Date(Date.UTC(year, 11, 31, 23, 59, 59))) : new Date(now);
+  const from = year
+    ? new Date(Date.UTC(year, 0, 1))
+    : new Date(Date.UTC(now.getFullYear() - 1, now.getMonth(), now.getDate()));
+
+  const calendar = await fetchUserContribution(token, user.login, {
+    from: from.toISOString(),
+    to: end.toISOString(),
+  });
 
   if (!calendar) {
     throw new Error("Failed to fetch contribution data");
@@ -32,9 +45,28 @@ export async function getContributionGraph() {
           level: Math.min(4, Math.floor(day.contributionCount / 3))
       }))
   );
+
+  // Completed AI reviews per day, for the contribution heatmap (scoped to year)
+  const reviews = await prisma.codeReview.findMany({
+    where: {
+      userId: session.user.id,
+      status: "completed",
+      createdAt: { gte: from, lte: end },
+    },
+    select: { createdAt: true },
+  });
+
+  const reviewsPerDay = new Map<string, number>();
+  for (const review of reviews) {
+    const date = review.createdAt.toISOString().split("T")[0];
+    reviewsPerDay.set(date, (reviewsPerDay.get(date) ?? 0) + 1);
+  }
+
   return {
       contributions,
       totalContributions: calendar.totalContributions,
+      reviewsPerDay: Object.fromEntries(reviewsPerDay),
+      githubCreatedAt: accountCreatedAt ? accountCreatedAt.toISOString() : null,
   }
 }
 
