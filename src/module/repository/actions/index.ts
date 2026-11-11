@@ -8,6 +8,7 @@ import { revalidatePath } from "next/cache";
 import {
     normalizeCustomPrompt,
     normalizeRepoReviewModes,
+    normalizeReviewIgnoreGlobs,
     serializeRepoReviewModes,
     type RepoReviewStyle,
 } from "@/module/repository/lib/settings";
@@ -34,6 +35,7 @@ export const fetchUserRepositories = async (page: number = 1, perPage: number = 
                 reviewStyle: true,
                 memesEnabled: true,
                 customPrompt: true,
+                reviewIgnoreGlobs: true,
                 aiProvider: true,
                 aiModel: true,
                 reviewMode: true,
@@ -48,6 +50,7 @@ export const fetchUserRepositories = async (page: number = 1, perPage: number = 
                     reviewModes: normalizeRepoReviewModes(repo.reviewStyle),
                     memesEnabled: repo.memesEnabled,
                     customPrompt: repo.customPrompt,
+                    reviewIgnoreGlobs: repo.reviewIgnoreGlobs,
                     aiProvider: repo.aiProvider,
                     aiModel: repo.aiModel,
                     reviewMode: repo.reviewMode,
@@ -67,6 +70,7 @@ export const fetchUserRepositories = async (page: number = 1, perPage: number = 
                     reviewModes: connected?.reviewModes || ["balanced"],
                     memesEnabled: connected?.memesEnabled ?? true,
                     customPrompt: connected?.customPrompt || null,
+                    reviewIgnoreGlobs: connected?.reviewIgnoreGlobs || null,
                     aiProvider: connected?.aiProvider || null,
                     aiModel: connected?.aiModel || null,
                     reviewMode: connected?.reviewMode || "auto",
@@ -250,6 +254,7 @@ export const updateRepositoryBehaviorSettings = async (data: {
     reviewModes?: RepoReviewStyle[];
     memesEnabled: boolean;
     customPrompt?: string | null;
+    reviewIgnoreGlobs?: string | null;
     aiProvider?: string | null;
     aiModel?: string | null;
     reviewMode?: "auto" | "ask";
@@ -281,6 +286,7 @@ export const updateRepositoryBehaviorSettings = async (data: {
                 throw new Error("Custom rules are a Pro feature - upgrade to use them");
             }
         }
+        const reviewIgnoreGlobs = normalizeReviewIgnoreGlobs(data.reviewIgnoreGlobs);
 
         const provider = data.aiProvider?.trim() || null;
         const model = data.aiModel?.trim() || null;
@@ -309,6 +315,7 @@ export const updateRepositoryBehaviorSettings = async (data: {
                 ),
                 memesEnabled: Boolean(data.memesEnabled),
                 customPrompt,
+                reviewIgnoreGlobs,
                 aiProvider: provider,
                 aiModel: provider ? model : null,
                 ...(data.reviewMode ? { reviewMode: data.reviewMode } : {}),

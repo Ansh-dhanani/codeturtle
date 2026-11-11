@@ -237,13 +237,32 @@ function parseChangedDiffContext(diff: string): ParsedDiffContext {
 const DIFF_COMPRESSION_THRESHOLD = MAX_DIFF_CHARS; // 24000
 const HUNK_CONTEXT_LINES = 10;
 
-function isExcludedFromDeepReview(filename: string): boolean {
+function matchPathGlob(path: string, glob: string): boolean {
+  const p = path.replace(/^\.\//, "");
+  let g = glob.trim().replace(/^\.\//, "");
+  if (!g) return false;
+  // A trailing "/" (e.g. "docs/") is shorthand for that directory tree
+  if (g.endsWith("/")) g = `${g}**`;
+  const segments = g.split("**").map((segment) =>
+    segment
+      .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+      .replace(/\*/g, "[^/]*")
+      .replace(/\?/g, "."),
+  );
+  try {
+    return new RegExp("^" + segments.join(".*") + "$").test(p);
+  } catch {
+    return false;
+  }
+}
+
+function isExcludedFromDeepReview(filename: string, extraGlobs: string[] = []): boolean {
   const p = filename.toLowerCase();
   if (/(^|\/)\.yarn(\/|$)/.test(p)) return true;
   if (/(^|\/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|composer\.lock|gemfile\.lock|poetry\.lock|pipfile\.lock|cargo\.lock|go\.sum|packages\.lock\.json|flake\.lock)$/.test(p)) return true;
   if (/\.lock$/.test(p)) return true;
   if (/\.(png|jpe?g|gif|webp|ico|bmp|tiff?|svg|pdf|zip|gz|tgz|bz2|7z|rar|woff2?|ttf|otf|eot|mp4|mov|webm|mp3|wav|avi|min\.js|min\.css|map)$/.test(p)) return true;
-  return false;
+  return extraGlobs.some((glob) => matchPathGlob(p, glob.toLowerCase()));
 }
 
 function splitDiffByFile(diff: string): Map<string, string> {
@@ -340,8 +359,10 @@ function buildReviewContext(params: {
   diff: string;
   files: Array<{ filename: string; status: string; additions: number; deletions: number }>;
   diffCharsBudget: number;
+  ignoreGlobs?: string[];
 }): CompressedReviewContext {
-  const { diff, files, diffCharsBudget } = params;
+  const { diff, files, diffCharsBudget, ignoreGlobs } = params;
+  const extraGlobs = ignoreGlobs ?? [];
 
   const totalAdditions = files.reduce((sum, f) => sum + (f.additions || 0), 0);
   const totalDeletions = files.reduce((sum, f) => sum + (f.deletions || 0), 0);
@@ -372,7 +393,7 @@ function buildReviewContext(params: {
   const includedSections: Array<{ filename: string; content: string }> = [];
 
   for (const f of files) {
-    if (isExcludedFromDeepReview(f.filename)) {
+    if (isExcludedFromDeepReview(f.filename, extraGlobs)) {
       excludedFiles.push(f.filename);
       continue;
     }
@@ -385,7 +406,7 @@ function buildReviewContext(params: {
   const knownFiles = new Set(files.map((f) => normalizeFilePath(f.filename)));
   for (const [name, section] of sections) {
     if (knownFiles.has(name)) continue;
-    if (isExcludedFromDeepReview(name)) {
+    if (isExcludedFromDeepReview(name, extraGlobs)) {
       excludedFiles.push(name);
       continue;
     }
@@ -920,7 +941,7 @@ export async function generateCodeReview(params: {
   const repositorySettings = await withPrismaRetry("load-repository-settings", () =>
     prisma.repository.findFirst({
       where: { owner, name: repo, userId },
-      select: { reviewStyle: true, customPrompt: true, aiProvider: true, aiModel: true },
+      select: { reviewStyle: true, customPrompt: true, aiProvider: true, aiModel: true, reviewIgnoreGlobs: true },
     }),
   );
   const reviewModes = normalizeRepoReviewModes(repositorySettings?.reviewStyle);
@@ -1116,7 +1137,16 @@ Base: ${prBaseRef} → Head: ${prHeadRef}${prCommits != null ? `\nCommits: ${prC
 ${prBody ? `\nDescription:\n${prBody}` : ""}`
     : "";
 
-  const reviewContext = buildReviewContext({ diff, files, diffCharsBudget });
+  const reviewContext = buildReviewContext({
+    diff,
+    files,
+    diffCharsBudget,
+    ignoreGlobs: (repositorySettings?.reviewIgnoreGlobs ?? "")
+      .split(/[\n,]/g)
+      .map((glob) => glob.trim())
+      .filter(Boolean)
+      .slice(0, 25),
+  });
   const excludedFilesBlock = reviewContext.excludedFiles.length > 0
     ? `## Excluded from deep review (binary/lockfile/cache-like - do NOT review their contents, but mention them briefly in the summary):
 ${reviewContext.excludedFiles.map((f) => `- ${f}`).join("\n")}

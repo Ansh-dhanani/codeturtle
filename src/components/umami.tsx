@@ -5,10 +5,12 @@
  *
  * Env:
  *   NEXT_PUBLIC_UMAMI_WEBSITE_ID  - required; the website id from your Umami dashboard
- *   NEXT_PUBLIC_UMAMI_SRC         - script URL (default https://cloud.umami.is/script.js)
+ *   NEXT_PUBLIC_UMAMI_SRC         - explicit script URL (e.g. self-hosted /script.js path)
+ *   NEXT_PUBLIC_UMAMI_URL         - self-hosted Umami instance base URL (derives <URL>/script.js)
  *   NEXT_PUBLIC_UMAMI_DOMAINS     - optional comma-separated domain restriction (data-domains)
  *
  * If NEXT_PUBLIC_UMAMI_WEBSITE_ID is unset, this component renders nothing.
+ * Script resolution order: NEXT_PUBLIC_UMAMI_SRC → NEXT_PUBLIC_UMAMI_URL/script.js → Umami Cloud default.
  */
 
 import Script from "next/script";
@@ -17,7 +19,11 @@ import { usePathname, useSearchParams } from "next/navigation";
 import "@/lib/analytics";
 
 const WEBSITE_ID = process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID;
-const SRC = process.env.NEXT_PUBLIC_UMAMI_SRC ?? "https://cloud.umami.is/script.js";
+const SRC =
+  process.env.NEXT_PUBLIC_UMAMI_SRC ??
+  (process.env.NEXT_PUBLIC_UMAMI_URL
+    ? `${process.env.NEXT_PUBLIC_UMAMI_URL.replace(/\/+$/, "")}/script.js`
+    : "https://cloud.umami.is/script.js");
 const DOMAINS = process.env.NEXT_PUBLIC_UMAMI_DOMAINS;
 
 /** Umami records the first pageview on script load; skip the initial effect fire to avoid double counting. */

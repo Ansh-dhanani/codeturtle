@@ -13,6 +13,8 @@ On the [Repositories](/repositories) page, open a repo's **Configure** sheet and
 - Capped at **2,000 characters**
 - **Pro / Enterprise only** - free users see the field locked
 
+The same Configure sheet also has **Ignore paths (globs)** - comma- or newline-separated patterns like `docs/`, `**/*.test.ts`, `src/generated/`, `*.snap`. Any file matching a glob is skipped entirely - excluded from the prompt and from deep review. Lockfiles, minified assets, and binary-ish files (images, fonts, maps, large media) are always skipped regardless of your rules.
+
 <Callout type="warn" title="Pro feature">
   Custom rules turn reviews from generic to opinionated. Free accounts can read this page but can't save rules - upgrade on [Billing](/billing) to unlock them.
 </Callout>

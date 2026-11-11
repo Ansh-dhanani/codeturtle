@@ -130,6 +130,7 @@ model Repository {
   aiProvider String?
   aiModel String?
   reviewMode String @default("auto")
+  reviewIgnoreGlobs String?
   reviews   CodeReview[]
   
   createdAt DateTime @default(now())

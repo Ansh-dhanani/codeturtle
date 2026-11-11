@@ -33,7 +33,11 @@ import {
 
 const l = createLogger("inngest-functions");
 const MAX_FREE_PLAN_PR_COMMITS = 3;
+const MAX_FREE_PLAN_PR_FILES = 100;
 const PRISMA_MAX_RETRIES = 3;
+
+const BILLING_URL = (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/+$/, "") + "/billing";
+const UPGRADE_CTA = `\n\n**[Upgrade to Pro ($4/mo) for unlimited reviews, repos, and commits →](${BILLING_URL})**`;
 
 function sleep(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -645,6 +649,7 @@ export const processPREvent = inngest.createFunction(
                         body: [
                             `Monthly quota reached: ${usage.used}/${usage.limit}. Please upgrade or wait for reset.`,
                             ...(await getHumorLines("quota-limit", { used: usage.used, limit: usage.limit }, { enabled: behaviorSettings.memesEnabled, dedupeKey: humorDedupeKey })),
+                            UPGRADE_CTA,
                         ].join("\n"),
                     });
                 });
@@ -666,6 +671,7 @@ export const processPREvent = inngest.createFunction(
                         body: [
                             `Free plan limit: ${perPrUsage.used}/${perPrUsage.limit} reviews used this month.`,
                             ...(await getHumorLines("quota-limit", { used: perPrUsage.used, limit: perPrUsage.limit }, { enabled: behaviorSettings.memesEnabled, dedupeKey: humorDedupeKey })),
+                            UPGRADE_CTA,
                         ].join("\n"),
                     });
                 });
@@ -694,6 +700,52 @@ export const processPREvent = inngest.createFunction(
                 return { allowed: commits <= MAX_FREE_PLAN_PR_COMMITS, commits, headSha: pr.head.sha || null };
             });
 
+            // Free plan: don't burn tokens on huge diffs. Large PRs are where
+            // reviews produce noise anyway, so we bail out with pointers to Pro.
+            const diffGuard = await step.run("Check diff size policy", async () => {
+                const specialLimitless = await isSpecialLimitlessUser(userId);
+                if (specialLimitless) {
+                    return { allowed: true, changedFiles: 0 };
+                }
+                const subscription = await prisma.subscription.findUnique({
+                    where: { userId },
+                    select: { plan: true },
+                });
+                if ((subscription?.plan || "free") !== "free") {
+                    return { allowed: true, changedFiles: 0 };
+                }
+                const octokit = await getPreferredOctokit(owner, repo, userId);
+                const { data: pr } = await octokit.rest.pulls.get({ owner, repo, pull_number: prNumber });
+                const changedFiles = pr.changed_files ?? 0;
+                return { allowed: changedFiles <= MAX_FREE_PLAN_PR_FILES, changedFiles };
+            });
+
+            if (!diffGuard.allowed) {
+                await step.run("Post too-many-files comment", async () => {
+                    const octokit = await getPreferredOctokit(owner, repo, userId);
+                    await octokit.rest.issues.createComment({
+                        owner,
+                        repo,
+                        issue_number: prNumber,
+                        body: [
+                            `This PR touches **${diffGuard.changedFiles} files** — over the Free plan limit of ${MAX_FREE_PLAN_PR_FILES}. Split it into smaller PRs, or go unlimited.`,
+                            ...(await getHumorLines("quota-limit", undefined, { enabled: behaviorSettings.memesEnabled, dedupeKey: humorDedupeKey })),
+                            UPGRADE_CTA,
+                        ].join("\n"),
+                    });
+                });
+
+                l.warn("PR exceeds free plan file limit; skipping review", {
+                    owner,
+                    repo,
+                    prNumber,
+                    userId,
+                    action,
+                    changedFiles: diffGuard.changedFiles,
+                });
+                return { skipped: true, reason: "too_many_files", changedFiles: diffGuard.changedFiles };
+            }
+
             let effectiveHeadSha = headSha || commitPolicy.headSha || undefined;
             if (!effectiveHeadSha) {
                 effectiveHeadSha = await step.run("Load PR head SHA", async () => {
@@ -713,6 +765,7 @@ export const processPREvent = inngest.createFunction(
                         body: [
                             `${commitPolicy.commits} commits exceeds free plan limit (${MAX_FREE_PLAN_PR_COMMITS}). Split PR or upgrade.`,
                             ...(await getHumorLines("quota-limit", undefined, { enabled: behaviorSettings.memesEnabled, dedupeKey: humorDedupeKey })),
+                            UPGRADE_CTA,
                         ].join("\n"),
                     });
                 });

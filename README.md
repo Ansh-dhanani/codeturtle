@@ -3,27 +3,19 @@
   <br />
 
   <picture>
-    <!-- Use explicit relative path so GitHub README renders correctly -->
-    <img src="./public/codeturtle-logo.svg" alt="CodeTurtle logo" width="200" />
+    <!-- Theme-aware brand mark; GitHub renders prefers-color-scheme blocks inline -->
+    <source media="(prefers-color-scheme: dark)" srcset="./public/codeturtle-logo-dark.svg" />
+    <source media="(prefers-color-scheme: light)" srcset="./public/codeturtle-logo-light.svg" />
+    <img src="./public/codeturtle-logo-light.svg" alt="CodeTurtle logo" width="200" />
   </picture>
-
-  <!-- Fallback for some markdown renderers: Markdown image with relative path -->
-  <!-- ![CodeTurtle logo](./public/codeturtle-logo.svg) -->
 
   <h1 style="margin-top: 0.5rem;">CodeTurtle</h1>
 
-  <p style="margin: 0.25rem 0 0.75rem 0;"><strong>A production-ready Next.js platform with GitHub OAuth, Webhooks, and Prisma.</strong><br />
-  <small>Built for teams and developers shipping GitHub-integrated products with confidence.</small></p>
-
-  <p>
-    <a href="https://github.com/Ansh-dhanani/codeturtle/stargazers"><img src="https://img.shields.io/github/stars/Ansh-dhanani/codeturtle?style=flat-square" alt="GitHub stars" /></a>
-    </a>
-    <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License" /></a>
-    <a href="https://github.com/Ansh-dhanani/codeturtle/issues"><img src="https://img.shields.io/github/issues/Ansh-dhanani/codeturtle?style=flat-square" alt="Open issues" /></a>
-  </p>
+  <p style="margin: 0.25rem 0 0.75rem 0;"><strong>Repository-aware AI code reviews for GitHub pull requests.</strong><br />
+  <small>Fewer false positives. Findings grounded in your entire repository.</small></p>
 
   <p style="margin-top: 0.5rem;">
-    <a href="./docs/README.md">Documentation</a> · <a href="#installation">Quick Start</a> · <a href="./CONTRIBUTING.md">Contributing</a>
+    <a href="./docs/README.md">Documentation</a> · <a href="#installation">Quick Start</a>
   </p>
 </div>
 

@@ -73,6 +73,7 @@ interface Repository {
   reviewModes?: string[];
   memesEnabled?: boolean;
   customPrompt?: string | null;
+  reviewIgnoreGlobs?: string | null;
   aiProvider?: string | null;
   aiModel?: string | null;
   reviewMode?: "auto" | "ask";
@@ -83,6 +84,7 @@ type RepoDraft = {
   reviewModes: RepoReviewStyle[];
   memesEnabled: boolean;
   customPrompt: string;
+  reviewIgnoreGlobs: string;
   aiProvider: string | null;
   aiModel: string | null;
   reviewMode: "auto" | "ask";
@@ -100,6 +102,7 @@ type ConnectedRepo = {
   reviewModes?: string[];
   memesEnabled: boolean;
   customPrompt: string | null;
+  reviewIgnoreGlobs?: string | null;
   aiProvider: string | null;
   aiModel: string | null;
   reviewMode?: "auto" | "ask";
@@ -185,6 +188,7 @@ export function RepositoryManager() {
         reviewModes: repo.reviewModes || normalizeRepoReviewModes(repo.reviewStyle),
         memesEnabled: repo.memesEnabled,
         customPrompt: repo.customPrompt,
+        reviewIgnoreGlobs: repo.reviewIgnoreGlobs ?? null,
         aiProvider: repo.aiProvider,
         aiModel: repo.aiModel,
         reviewMode: repo.reviewMode ?? "auto",
@@ -303,6 +307,7 @@ export function RepositoryManager() {
         reviewModes: draft.reviewModes,
         memesEnabled: draft.memesEnabled,
         customPrompt: draft.customPrompt,
+        reviewIgnoreGlobs: draft.reviewIgnoreGlobs,
         aiProvider: draft.aiProvider,
         aiModel: draft.aiModel,
         reviewMode: draft.reviewMode,
@@ -603,6 +608,7 @@ function RepoSheet({
     reviewModes: normalizeRepoReviewModes(repo.reviewModes || repo.reviewStyle),
     memesEnabled: repo.memesEnabled ?? true,
     customPrompt: repo.customPrompt || "",
+    reviewIgnoreGlobs: repo.reviewIgnoreGlobs || "",
     aiProvider: repo.aiProvider || null,
     aiModel: repo.aiModel || null,
     reviewMode: (repo.reviewMode as "auto" | "ask" | undefined) ?? "auto",
@@ -625,7 +631,7 @@ function RepoSheet({
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6">
+        <div className="flex min-h-0 flex-1 overflow-y-auto px-4 py-6 space-y-6">
           {/* Review mode */}
           <div className="space-y-2">
             <Label className="text-xs uppercase text-muted-foreground">
@@ -745,6 +751,24 @@ function RepoSheet({
                 {merged.customPrompt.length}/2000 - appended to every review for this repository.
               </p>
             )}
+          </div>
+
+          {/* Ignore paths */}
+          <div className="space-y-2">
+            <Label htmlFor={`ignore-${key}`} className="text-xs uppercase text-muted-foreground">
+              Ignore paths (globs)
+            </Label>
+            <Textarea
+              id={`ignore-${key}`}
+              rows={2}
+              maxLength={500}
+              placeholder="e.g. docs/, **/*.test.ts, src/generated/, *.snap"
+              value={merged.reviewIgnoreGlobs}
+              onChange={(event) => update({ reviewIgnoreGlobs: event.target.value })}
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Comma- or newline-separated globs skipped during review - lockfiles, minified assets, and binary-ish files are always skipped. {merged.reviewIgnoreGlobs.length}/500
+            </p>
           </div>
 
           {/* AI provider */}
