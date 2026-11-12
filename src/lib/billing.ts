@@ -18,7 +18,7 @@ export const PLANS = {
     price: 49,
     reviewLimit: -1,
     repoLimit: -1,
-    features: ["Unlimited reviews", "Unlimited repositories", "Unlimited reviews & commits per PR", "Custom rules (custom prompts)", "Priority support", "Everything in Pro + contact us for org onboarding"],
+    features: ["Unlimited reviews", "Unlimited repositories", "Unlimited reviews & commits per PR", "Custom rules (custom prompts)", "Priority support", "Everything in Pro + contact dhananiansh01@gmail.com for org onboarding"],
   },
 } as const;
 

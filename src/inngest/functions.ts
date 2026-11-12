@@ -1538,7 +1538,7 @@ export const processPREvent = inngest.createFunction(
                                         ? "Likely cause: provider rate limit. Please retry in a few minutes."
                                         : /provider returned error|ai_apicallerror/i.test(errorMessage)
                                             ? "Likely cause: provider-side model routing failure. Please switch model in settings (recommended: Google Gemini 2.5 Flash) and retry."
-                                            : "Please retry in a few minutes. If this keeps happening, contact support with this PR link.";
+                                            : "Please retry in a few minutes. If this keeps happening, email dhananiansh01@gmail.com with this PR link.";
 
                     // Failure comments are operational messages, not the place for memes.
                     const bodyWithoutHumor = [

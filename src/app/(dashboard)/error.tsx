@@ -15,7 +15,9 @@ export default function ErrorPage({ error, reset }: { error: Error & { digest?: 
       <AlertTriangle className="h-16 w-16 text-yellow-500" />
       <h1 className="mt-6 text-2xl font-bold">Something went wrong</h1>
       <p className="mt-2 max-w-md text-muted-foreground">
-        An unexpected error occurred. Please try again or contact support if the problem persists.
+        An unexpected error occurred. Please try again, or email{" "}
+        <a href="mailto:dhananiansh01@gmail.com" className="underline hover:text-foreground">dhananiansh01@gmail.com</a>{" "}
+        if the problem persists.
       </p>
       <div className="mt-8 flex gap-4">
         <Button onClick={reset} variant="outline">

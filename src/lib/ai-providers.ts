@@ -38,8 +38,10 @@ export const AI_PROVIDERS = [
     name: "Groq",
     description: "Ultra-fast inference (shared key supported)",
     models: [
-      { id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B", tier: "free" as const, description: "Fast open-source" },
-      { id: "llama-3.1-8b-instant", name: "Llama 3.1 8B Instant", tier: "free" as const, description: "Low-latency Groq model" },
+      { id: "openai/gpt-oss-120b", name: "GPT-OSS 120B", tier: "free" as const, description: "Open-weight reasoning model (live Groq catalog)" },
+      { id: "openai/gpt-oss-20b", name: "GPT-OSS 20B", tier: "free" as const, description: "Smaller open-weight model, fast (live Groq catalog)" },
+      { id: "qwen/qwen3.8-27b", name: "Qwen 3.8 27B", tier: "free" as const, description: "Live Groq catalog model" },
+      { id: "allam-2-7b", name: "ALLaM 2 7B", tier: "free" as const, description: "Live Groq catalog model" },
     ],
     requiresApiKey: false,
     keyEnvVar: "GROQ_API_KEY",
