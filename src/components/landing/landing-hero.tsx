@@ -54,14 +54,12 @@ export function LandingHero() {
 			<div className="relative px-4 py-2 text-center md:px-6 md:py-4">
 				<div className="relative mx-auto mt-4 flex max-w-3xl flex-col items-center gap-6 text-slate-900 md:mt-6 dark:text-white">
 					<h1 className="font-heading text-balance text-3xl leading-[1.1] font-medium tracking-tight md:text-5xl">
-						The reviewer that actually{" "}
-						<span className="font-serif italic">reads your repo</span>
-						<span className="text-primary">.</span>
+						Free AI code review on every PR,{" "}
+						<span className="font-serif italic">every month</span>
 					</h1>
 					<p className="max-w-xl text-pretty text-balance text-sm text-slate-800 md:text-base dark:text-sky-100">
-						Every PR gets an AI review that knows your codebase - diff intent,
-						dependencies, conventions, prior patterns - posted as inline findings
-						with a 0-10 score. <em>No rubber-stamping.</em>
+						<strong>45+ free models</strong> powering 20 reviews/month on 5 repos -
+						no credit card, no strings. <em>Works for any GitHub repository.</em>
 					</p>
 					<div className="flex flex-wrap items-center justify-center gap-3">
 						<Button asChild size="lg">
