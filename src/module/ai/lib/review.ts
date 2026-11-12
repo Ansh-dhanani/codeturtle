@@ -583,16 +583,16 @@ function sanitizeReviewOutput(
     .filter((positive, index, all) => all.findIndex((candidate) => normalizeTextForKey(candidate) === normalizeTextForKey(positive)) === index)
     .slice(0, maxPositives);
 
-  const architectureNotes =
-    review.architectureNotes?.trim().slice(0, 1200) ||
-    (() => {
-      const files = [...changedFiles].slice(0, 4);
-      if (files.length === 0) return undefined;
-      if (files.length === 1) {
-        return `Architecture impact is localized to \`${files[0]}\`; no broad cross-module coupling changes were detected in this diff.`;
-      }
-      return `Architecture impact appears focused on: ${files.map((file) => `\`${file}\``).join(", ")}. No broad repository-wide refactor patterns were detected in this PR.`;
-    })();
+  // Only keep architecture notes the model explicitly provided. Never fabricate filler from file names.
+  const architectureNotes = review.architectureNotes?.trim().slice(0, 1200) || undefined;
+
+  // Drop padding-y notes the model often invents for trivial diffs.
+  const meaningfulArchNotes =
+    architectureNotes &&
+    !/^architecture impact (is|appears)/i.test(architectureNotes) &&
+    architectureNotes.length >= 40
+      ? architectureNotes
+      : undefined;
 
   const diagram = review.diagram?.trim();
 
@@ -602,7 +602,7 @@ function sanitizeReviewOutput(
     issues,
     suggestions,
     positives,
-    architectureNotes,
+    architectureNotes: meaningfulArchNotes,
     diagram: diagram ? diagram.slice(0, 6000) : undefined,
   };
 }
@@ -796,15 +796,17 @@ CRITICAL JSON RULES:
 - Ensure all braces and quotes are perfectly closed.
 - Every string field must be present and non-empty when applicable; empty arrays are fine for issues/suggestions/positives.`;
 
-const DIAGRAM_OUTPUT_INSTRUCTIONS = `Always populate the "diagram" field with a Mermaid diagram that maps the architecture, data flow, or control flow of the changed code.
+const DIAGRAM_OUTPUT_INSTRUCTIONS = `The "diagram" field is OPTIONAL. Omit it entirely unless the changed code involves a genuinely non-obvious multi-step architecture (a new service integration, a cross-module refactor, or a non-trivial data/request pipeline).
+For ordinary reviews, local bug fixes, or small features, you MUST omit the "diagram" field - do NOT draw a trivial A->B->C flowchart just to fill the section.
+If you do include one:
 Choose the most appropriate diagram type:
 - flowchart TD: component trees, module dependencies, call graphs
 - sequenceDiagram: request/response chains, API calls, async flows
 Rules:
 - Output raw Mermaid syntax only - no markdown fences.
-- Max 12 nodes; labels ≤4 words using real names.
+- Max 12 nodes; labels ≤4 words using real names from the diff.
 - Do NOT use double quotes inside Mermaid labels to avoid breaking JSON string bounds.
-- Only include a diagram when it aids understanding; omit it otherwise.`;
+- The diagram must add information the summary does not already convey; if unsure, omit it.`;
 
 function escapeControlCharsInString(value: string): string {
   let result = "";
