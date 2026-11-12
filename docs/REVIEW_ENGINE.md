@@ -144,7 +144,9 @@ Implementation: `scripts/benchmark.ts` (proposed) — replays PRs through `gener
 
 ## Implementation status
 
-**P0 — implemented 2026-11-12 (behind `CODETURTLE_FINDING_SCHEMA=v2`):**
+**AI-provider reliability (2026-11-12, commit `870955d`):** passing `providerOptions: { openai: { strictJsonSchema: false } }` on every OpenAI-compatible generation call — Google/Anthropic ignore that key; Groq/OpenRouter free tiers no longer reject the zod schema. Fixes the systemic "issue: \`Issue\`, No suggestion provided." placeholder output seen on the free path; findings now come through with real titles/descriptions/line numbers/fix suggestions. Also fixed `FINDING_V2` parsing (`"v2"` was never accepted), so the flag finally works. Local trial of v2 on the Groq failover path produced fully-shaped findings (category/confidence/trigger/impact/evidence populated; verbatim evidence string verified present in the diff).
+
+**P0 — implemented 2026-11-12 (v2 flag OFF in prod by default; local v2 validation passing as of 870955d):**
 1. `processPREvent` now has `concurrency` (limit 1 per PR) + `singleton: { mode: "cancel" }` — force-push storms supersede stale runs instead of flooding the PR. (`src/inngest/functions.ts`)
 2. Finding schema v2 (`severity critical|high|medium|low`, `category`, `confidence`, `trigger`, `impact`, `evidence[]`) implemented alongside the legacy schema; active only when `CODETURTLE_FINDING_SCHEMA=v2`. (`src/module/ai/lib/review.ts`)
 3. Deterministic verification pass before the judge: file must be in the changed set (existing), line must be within ±3 of a changed hunk (existing), plus new evidence-string check (every evidence entry must appear in the context when provided) and confidence ≥ 0.5 in v2 mode. Judge prompt now refute-don't-rewrite with an explicit "unverifiable = drop" rule.
