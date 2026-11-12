@@ -151,7 +151,15 @@ Implementation: `scripts/benchmark.ts` (proposed) — replays PRs through `gener
 4. Finding cap: 5 issues / 3 positives (was 8/4). Failure comments no longer include memes; recommendation text points at Gemini, not `openrouter/auto`.
 5. Benchmark skeleton: `scripts/benchmark.ts` (dry-run) + `scripts/benchmark-corpus.json` (12 labeled seeded-bug PRs from the test repo, labels from PR-body confessions). Live runner intentionally unimplemented — requires GitHub+DB env.
 
-**Not yet done:** conditional specialized passes (P1.6), caller/callee retrieval (P1.7), head-SHA context cache (P1.8), dismiss/feedback accounting (P1.9), static-analysis integration (P2.10), full benchmark run with held-out corpus (P2.11), token budgets/quota management (P2.12). The 90%+ precision target remains **unmeasured** — do not market quality until the benchmark says so.
+**P1 — partial 2026-11-12:**
+6. Conditional specialized passes implemented (`src/module/ai/lib/specialists.ts`): security / data-integrity / concurrency prompts fire only on risky surface area (auth/crypto/token/migration/DB/async paths or matching diff keywords). Findings flow through the same deterministic verification + judge pass + 5-finding cap. Disable with `CODETURTLE_SPECIALIST_PASSES=off`.
+7. Symbol-grounded RAG implemented: changed declarations (functions/classes/consts/interfaces, ≤5, added lines only) are queried against the Pinecone index for exact call-site usage instead of filename-based guesses only. (`extractDeclaredSymbols`, `review.ts`)
+8. Head-SHA context cache — **not done** (duplicate-review guard exists instead).
+9. Dismiss/feedback accounting — **not done**.
+11. Full benchmark run — **not done**.
+10. Static analysis integration, 12. quota management — **not done**.
+
+**Not yet done beyond the above:** specialized passes receive only diff + budget-limited context (no full repo), so their recall is limited by retrieval quality. Judge remains same-model-family as the analyzer (correlated failure). 90%+ precision is still unmeasured.
 
 ## Implementation phases
 

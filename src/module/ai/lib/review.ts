@@ -212,6 +212,26 @@ const MODEL_CONTEXT_TOKENS: Record<string, number> = {
   "openrouter/auto": 200000,
 };
 
+/** Pull up to 5 declared symbols out of a unified diff (added lines only) for exact-symbol RAG lookups. */
+function extractDeclaredSymbols(diff: string): string[] {
+  const symbols = new Set<string>();
+  for (const raw of diff.split("\n")) {
+    if (!raw.startsWith("+")) continue;
+    const line = raw.slice(1);
+    const match =
+      /(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/.exec(line) ||
+      /(?:export\s+)?(?:default\s+)?(?:abstract\s+)?class\s+([A-Za-z_$][\w$]*)/.exec(line) ||
+      /(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/.exec(line) ||
+      /(?:export\s+)?(?:interface|type|enum)\s+([A-Za-z_$][\w$]*)/.exec(line);
+    const name = match?.[1];
+    if (name && name.length >= 3 && !/^(const|let|var|function|class|if|for|while|return|type|interface|enum)$/.test(name)) {
+      symbols.add(name);
+    }
+    if (symbols.size >= 5) break;
+  }
+  return [...symbols];
+}
+
 const PRISMA_MAX_RETRIES = 3;
 const SEVERITY_ORDER: Record<"critical" | "warning" | "info", number> = {
   critical: 0,
@@ -1187,12 +1207,25 @@ export async function generateCodeReview(params: {
           "Security considerations and data access patterns",
         ].map(async (query) => queryCodebase(query, repoRecord.id, 2));
 
-        const [fileResults, extraResults] = await Promise.all([
+        // Symbol-grounded retrieval: embeddings alone miss exact call sites. For
+        // every declaration touched by the diff, ask the index for that symbol.
+        const changedSymbols = extractDeclaredSymbols(diff);
+
+        const symbolQueries = changedSymbols.map((symbol) =>
+          queryCodebase(`${symbol} call sites and usages`, repoRecord.id, 2),
+        );
+
+        const [fileResults, extraResults, symbolResults] = await Promise.all([
           Promise.all(fileQueries),
           Promise.all(extraQueries),
+          Promise.all(symbolQueries),
         ]);
 
-        const flattened = [...fileResults.flat(), ...extraResults.flat()];
+        if (changedSymbols.length > 0) {
+          logger.info("Symbol-grounded RAG queries", { owner, repo, prNumber, symbols: changedSymbols });
+        }
+
+        const flattened = [...fileResults.flat(), ...extraResults.flat(), ...symbolResults.flat()];
         const seenPaths = new Set<string>();
         contextChunks = flattened
           .filter((result) => {
@@ -1701,6 +1734,47 @@ Provide a structured review with specific issues, suggestions, and an overall sc
     reviewModes,
     contextText: reviewContext.diffForPrompt,
   });
+
+  // Conditional specialist passes (security / data-integrity / concurrency) run
+  // only when the diff touches risky surface area, BEFORE the judge pass so the
+  // judge can filter them like any other finding.
+  try {
+    const { runSpecialistPasses } = await import("@/module/ai/lib/specialists");
+    const specialistIssues = await runSpecialistPasses({
+      owner,
+      repo,
+      prNumber,
+      changedFiles: [...changedFilesSet],
+      diffText: diff,
+      contextText: reviewContext.diffForPrompt,
+      prTitle,
+    });
+    if (specialistIssues.length > 0) {
+      normalizedReview = sanitizeReviewOutput(
+        {
+          ...normalizedReview,
+          issues: [
+            ...specialistIssues,
+            ...normalizedReview.issues,
+          ] as typeof normalizedReview.issues,
+        },
+        {
+          diffContext,
+          changedFiles: changedFilesSet.size > 0 ? changedFilesSet : diffContext.changedFiles,
+          reviewModes,
+          contextText: reviewContext.diffForPrompt,
+        },
+      );
+      logger.info("Specialist findings merged", { owner, repo, prNumber, merged: normalizedReview.issues.length });
+    }
+  } catch (specialistErr) {
+    logger.warn("Specialist analysis failed; continuing with primary review", {
+      owner,
+      repo,
+      prNumber,
+      error: specialistErr instanceof Error ? specialistErr.message : String(specialistErr),
+    });
+  }
 
   const sanitizeParams = {
     diffContext,
