@@ -42,6 +42,7 @@ import {
   ListChecks,
   Zap,
   ArrowRight,
+  ThumbsUp,
 } from "lucide-react";
 
 const SEVERITY_COLORS = { critical: "#f43f5e", warning: "#f59e0b", info: "#38bdf8" } as const;
@@ -165,6 +166,36 @@ export default function AnalyticsPage() {
         <KpiCard label="Avg score" value={t.avgScore !== null ? `${t.avgScore}/10` : "-"} icon={TrendingUp} />
         <KpiCard label="Issues found" value={`${t.totalIssues}`} icon={AlertTriangle} />
       </div>
+
+      {/* ── Findings feedback ── */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+            <ThumbsUp className="h-4 w-4 text-primary" /> Findings feedback · last 6 months
+          </CardTitle>
+          <Badge variant="outline" className="text-[10px] text-muted-foreground">from review feedback buttons</Badge>
+        </CardHeader>
+        <CardContent>
+          {report?.feedback && (report.feedback.helpful + report.feedback.notHelpful) > 0 ? (
+            <div className="flex flex-wrap items-center gap-6">
+              <div>
+                <p className="text-2xl font-semibold tabular-nums">{report.feedback.helpful}</p>
+                <p className="text-xs text-muted-foreground">marked helpful</p>
+              </div>
+              <div>
+                <p className="text-2xl font-semibold tabular-nums text-rose-600 dark:text-rose-400">{report.feedback.notHelpful}</p>
+                <p className="text-xs text-muted-foreground">marked not helpful</p>
+              </div>
+              <div>
+                <p className="text-2xl font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">{report.feedback.helpfulRate}%</p>
+                <p className="text-xs text-muted-foreground">helpful rate</p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No feedback yet — use the thumbs on the Reviews page to teach the bot which findings are useful.</p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* ── Score trend ── */}
       <Card>

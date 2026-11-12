@@ -103,6 +103,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.0.10",
     "prisma": "^7.2.0",
+    "server-only": "^0.0.1",
     "shadcn": "^4.23.0",
     "tailwindcss": "4.3.5",
     "tsx": "^4.21.0",

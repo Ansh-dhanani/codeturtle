@@ -188,3 +188,17 @@ model Verification {
   @@index([identifier])
   @@map("verification")
 }
+
+// Cached assembled review-context payloads, keyed by PR head SHA.
+// Lets re-runs (Inngest retries, re-reviews of the same commit) skip
+// the GitHub fetch + Pinecone retrieval entirely.
+model ReviewContextCache {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  payload   Json
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([expiresAt])
+  @@map("review_context_cache")
+}

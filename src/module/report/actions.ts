@@ -40,6 +40,11 @@ export type AnalyticsReport = {
     status: string;
     createdAt: string;
   }>;
+  feedback: {
+    helpful: number;
+    notHelpful: number;
+    helpfulRate: number | null;
+  };
 };
 
 type ReviewRow = {
@@ -231,6 +236,19 @@ export async function getAnalyticsReport(options: { repositoryId?: string } = {}
     };
   });
 
+  const feedbackRows = await prisma.reviewFeedback.findMany({
+    where: {
+      userId: session.user.id,
+      createdAt: { gte: sixMonthsAgo },
+      ...(options.repositoryId ? { review: { repositoryId: options.repositoryId } } : {}),
+    },
+    select: { rating: true },
+  });
+  const feedbackHelpful = feedbackRows.filter((r) => r.rating === 1).length;
+  const feedbackNotHelpful = feedbackRows.filter((r) => r.rating === -1).length;
+  const feedbackTotal = feedbackHelpful + feedbackNotHelpful;
+  const helpfulRate = feedbackTotal > 0 ? Math.round((feedbackHelpful / feedbackTotal) * 1000) / 10 : null;
+
   return {
     repos: repos.map((r) => ({ id: r.id, name: r.fullName, url: r.url })),
     totals: {
@@ -246,5 +264,10 @@ export async function getAnalyticsReport(options: { repositoryId?: string } = {}
     severity,
     perRepo,
     recentReviews,
+    feedback: {
+      helpful: feedbackHelpful,
+      notHelpful: feedbackNotHelpful,
+      helpfulRate,
+    },
   };
 }

@@ -1016,8 +1016,9 @@ export async function generateCodeReview(params: {
   userId: string;
   model?: string;
   provider?: string;
+  headSha?: string;
 }): Promise<CodeReviewWithReviewer> {
-  const { owner, repo, prNumber, userId, model, provider } = params;
+  const { owner, repo, prNumber, userId, model, provider, headSha } = params;
 
   const user = await withPrismaRetry("load-user-ai-settings", () =>
     prisma.user.findUnique({
@@ -1048,6 +1049,34 @@ export async function generateCodeReview(params: {
   const reviewModes = normalizeRepoReviewModes(repositorySettings?.reviewStyle);
   const customPrompt = normalizeCustomPrompt(repositorySettings?.customPrompt, 2000);
   const diagramAllowed = reviewModes.includes("diagram");
+
+  // Feedback loop: fold in the findings this user rejected recently so the
+  // analyzer does not repeat known false positives.
+  let rejectedFindingsBlock = "";
+  try {
+    const rejected = await prisma.reviewFeedback.findMany({
+      where: { userId, rating: -1 },
+      orderBy: { createdAt: "desc" },
+      take: 8,
+      select: { findingKey: true },
+    });
+    const lines = rejected
+      .map((r) => r.findingKey.replace(/^issue:/, "").replace(/^suggestion:/, "suggestion: "))
+      .filter((line) => line.trim().length > 3)
+      .slice(0, 8);
+    if (lines.length > 0) {
+      rejectedFindingsBlock = [
+        "",
+        "Findings this user marked NOT HELPFUL (avoid repeating these; only report something similar if the evidence is undeniable):",
+        ...lines.map((line) => `- ${line}`),
+      ].join("\n");
+    }
+  } catch (feedbackErr) {
+    logger.warn("Could not load rejected-findings feedback; continuing", {
+      userId,
+      error: feedbackErr instanceof Error ? feedbackErr.message : String(feedbackErr),
+    });
+  }
   const systemPrompt = [
     BASE_SYSTEM_PROMPT,
     JSON_OUTPUT_INSTRUCTIONS,
@@ -1055,6 +1084,7 @@ export async function generateCodeReview(params: {
     "",
     `Repository style: ${getReviewModesInstruction(reviewModes)}`,
     customPrompt ? `Repository custom prompt: ${customPrompt}` : "",
+    rejectedFindingsBlock || "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -1158,21 +1188,49 @@ export async function generateCodeReview(params: {
 
   logger.info("Fetching PR data for review", { owner, repo, prNumber });
 
-  const [diff, files, prMeta] = await Promise.all([
-    getPRDiff(octokit, owner, repo, prNumber),
-    getPRFiles(octokit, owner, repo, prNumber),
-    withTimeout(
-      () => octokit.rest.pulls.get({ owner, repo, pull_number: prNumber }),
-      30_000,
-      "fetchPullRequest",
-    ),
-  ]);
+  // Read-through cache: re-runs of the same head SHA skip the GitHub fetch + RAG entirely.
+  const { getCachedReviewContext, setCachedReviewContext } = await import("@/lib/review-cache");
+  const reviewContextCacheKey = headSha ? `review-ctx:${owner}/${repo}#${headSha}` : null;
+  const cachedContext = reviewContextCacheKey
+    ? await getCachedReviewContext(reviewContextCacheKey)
+    : null;
 
-  const prTitle = prMeta?.data?.title?.trim() || "";
-  const prBody = (prMeta?.data?.body || "").trim().slice(0, 2000);
-  const prCommits = prMeta?.data?.commits ?? null;
-  const prBaseRef = prMeta?.data?.base?.ref ?? "";
-  const prHeadRef = prMeta?.data?.head?.ref ?? "";
+  let diff: string;
+  let files: Array<{ filename: string; status: string; additions: number; deletions: number }>;
+  let prTitle: string;
+  let prBody: string;
+  let prCommits: number | null;
+  let prBaseRef: string;
+  let prHeadRef: string;
+  let cachedContextChunks: string[] | null = null;
+
+  if (cachedContext) {
+    ({ diff, files, prTitle, prBody, prCommits, prBaseRef, prHeadRef } = cachedContext);
+    cachedContextChunks = cachedContext.contextChunks;
+  } else {
+    const [fetchedDiff, fetchedFiles, prMeta] = await Promise.all([
+      getPRDiff(octokit, owner, repo, prNumber),
+      getPRFiles(octokit, owner, repo, prNumber),
+      withTimeout(
+        () => octokit.rest.pulls.get({ owner, repo, pull_number: prNumber }),
+        30_000,
+        "fetchPullRequest",
+      ),
+    ]);
+    diff = fetchedDiff;
+    // Trim to what the pipeline actually uses (drops heavy `patch` payloads before caching)
+    files = (fetchedFiles ?? []).map((f: { filename: string; status: string; additions?: number; deletions?: number }) => ({
+      filename: f.filename,
+      status: f.status,
+      additions: f.additions ?? 0,
+      deletions: f.deletions ?? 0,
+    }));
+    prTitle = prMeta?.data?.title?.trim() || "";
+    prBody = (prMeta?.data?.body || "").trim().slice(0, 2000);
+    prCommits = prMeta?.data?.commits ?? null;
+    prBaseRef = prMeta?.data?.base?.ref ?? "";
+    prHeadRef = prMeta?.data?.head?.ref ?? "";
+  }
 
   const changedFiles = files
     .map((f) => f.filename)
@@ -1180,9 +1238,9 @@ export async function generateCodeReview(params: {
   const changedFilesSet = new Set(changedFiles.map((file) => normalizeFilePath(file)));
   const diffContext = parseChangedDiffContext(diff);
 
-  let contextChunks: string[] = [];
+  let contextChunks: string[] = cachedContextChunks ?? [];
 
-  if (changedFiles.length > 0) {
+  if (cachedContextChunks === null && changedFiles.length > 0) {
     try {
       const repoRecord = await withPrismaRetry("load-repository-record", () =>
         prisma.repository.findFirst({
@@ -1244,6 +1302,19 @@ export async function generateCodeReview(params: {
     }
   }
 
+  if (reviewContextCacheKey && cachedContext === null) {
+    await setCachedReviewContext(reviewContextCacheKey, {
+      diff,
+      files,
+      prTitle,
+      prBody,
+      prCommits,
+      prBaseRef,
+      prHeadRef,
+      contextChunks,
+    });
+  }
+
   const prContextBlock = prTitle
     ? `## Pull Request Context:
 Title: ${prTitle}
@@ -1267,6 +1338,9 @@ ${reviewContext.excludedFiles.map((f) => `- ${f}`).join("\n")}
 `
     : "";
 
+  const { extractStaticHints, formatStaticHintsForPrompt } = await import("@/module/ai/lib/static-hints");
+  const staticHintsBlock = formatStaticHintsForPrompt(extractStaticHints(diff));
+
   const userPrompt = `Review this pull request in the repository ${owner}/${repo}.
 
 ${contextChunks.length > 0 ? `
@@ -1276,6 +1350,7 @@ ${contextChunks.join("\n\n---\n\n")}
 ${prContextBlock}
 ${excludedFilesBlock}
 ${reviewContext.statBlock}
+${staticHintsBlock}
 
 ## Pull Request Diff:
 \`\`\`diff
@@ -1295,6 +1370,14 @@ Provide a structured review with specific issues, suggestions, and an overall sc
   const activeReviewSchema = FINDING_V2 ? CodeReviewV2Schema : CodeReviewSchema;
 
   const runReviewGeneration = async (modelToUse: LanguageModel, maxOutputTokens = REVIEW_MAX_TOKENS): Promise<{ object: CodeReview }> => {
+    const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+    const isRateLimit = (msg: string) => /429|rate[- ]?limit|quota|overloaded|resource[_ ]?exhausted/i.test(msg);
+    const logUsage = (stage: string, usage: Record<string, unknown> | undefined) => {
+      if (!usage) return;
+      const inputTokens = Number(usage.inputTokens ?? usage.promptTokens ?? 0);
+      const outputTokens = Number(usage.outputTokens ?? usage.completionTokens ?? 0);
+      logger.info("Model usage", { owner, repo, prNumber, stage, inputTokens, outputTokens, totalTokens: inputTokens + outputTokens });
+    };
     try {
       const result = await generateObject({
         model: modelToUse,
@@ -1303,10 +1386,34 @@ Provide a structured review with specific issues, suggestions, and an overall sc
         schema: activeReviewSchema,
         maxOutputTokens,
       });
+      logUsage("generate", result.usage as Record<string, unknown> | undefined);
       // v2 payloads are normalized (severity downgrade etc.) in sanitizeReviewOutput
       return { object: result.object as unknown as CodeReview };
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Unknown error";
+      // One lightweight retry on provider rate-limit/quota before giving up on the model.
+      if (isRateLimit(errorMessage)) {
+        logger.warn("Provider rate-limited; retrying once after backoff", { owner, repo, prNumber, model: normalizedSelectedModel });
+        try {
+          await sleep(2000);
+          const retryResult = await generateObject({
+            model: modelToUse,
+            system: effectiveSystemPrompt,
+            prompt: userPrompt,
+            schema: activeReviewSchema,
+            maxOutputTokens,
+          });
+          logUsage("generate-retry", retryResult.usage as Record<string, unknown> | undefined);
+          return { object: retryResult.object as unknown as CodeReview };
+        } catch (retryErr) {
+          logger.warn("Rate-limit retry also failed; falling back to JSON text path", {
+            owner,
+            repo,
+            prNumber,
+            error: retryErr instanceof Error ? retryErr.message : String(retryErr),
+          });
+        }
+      }
       logger.warn("Structured output failed, retrying with JSON text", {
         owner,
         repo,

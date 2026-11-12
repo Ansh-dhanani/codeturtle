@@ -1000,7 +1000,7 @@ export const processPREvent = inngest.createFunction(
             const review = await step.run("Generate PR review", async () => {
                 const { generateCodeReview } = await import("@/module/ai/lib/review");
                 return await withTimeout(
-                    () => generateCodeReview({ owner, repo, prNumber, userId }),
+                    () => generateCodeReview({ owner, repo, prNumber, userId, headSha: headSha || effectiveHeadSha }),
                     5 * 60 * 1000,
                     "generateCodeReview",
                 );
