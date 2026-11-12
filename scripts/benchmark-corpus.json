@@ -1,0 +1,115 @@
+{
+  "meta": {
+    "repo": "Ansh-dhanani/codeturtle-test-repo",
+    "description": "Human-labeled benchmark PRs for the CodeTurtle review engine. Labels come from the PR authors' own confessions (PR bodies/commit messages) and from manual inspection. These are SEEDED-BUG PRs - do not tune against this corpus alone; keep PRs with real-world false labels held out.",
+    "seeded_date": "2026-11",
+    "tuning_policy": "Use for iteration only. Report headline metrics on held-out, non-seeded PRs before any quality claims."
+  },
+  "entries": [
+    {
+      "pr": 28,
+      "title": "feat(utils): add add/average/clamp/formatCurrency helpers with tests",
+      "family": "utils",
+      "defects": [
+        { "id": "utils-floor", "file": "utils.js", "line": 42, "category": "logic", "severity": "medium", "description": "formatCurrency uses Math.floor instead of rounding to nearest cent" },
+        { "id": "utils-no-test", "file": "utils.test.js", "line": 1, "category": "testing", "severity": "low", "description": "formatCurrency not covered by tests" }
+      ]
+    },
+    {
+      "pr": 29,
+      "title": "feat(cart): shopping cart helpers",
+      "family": "cart",
+      "defects": [
+        { "id": "cart-secret", "file": "cart.js", "line": 23, "category": "security", "severity": "critical", "description": "hardcoded API key committed to source" },
+        { "id": "cart-global-total", "file": "cart.js", "line": 4, "category": "concurrency", "severity": "medium", "description": "module-level mutable cart total shared across calls" },
+        { "id": "cart-loose-eq", "file": "cart.js", "line": 25, "category": "logic", "severity": "low", "description": "loose == comparison of discount codes" }
+      ]
+    },
+    {
+      "pr": 30,
+      "title": "feat: messy sample module (all bad)",
+      "family": "messy",
+      "defects": [
+        { "id": "messy-eval", "file": "src/messy.js", "line": 1, "category": "security", "severity": "critical", "description": "eval() on input" },
+        { "id": "messy-password", "file": "src/messy.js", "line": 1, "category": "security", "severity": "critical", "description": "hardcoded password in source" },
+        { "id": "messy-mutable-globals", "file": "src/messy.js", "line": 1, "category": "logic", "severity": "medium", "description": "mutable module-level globals" }
+      ]
+    },
+    {
+      "pr": 31,
+      "title": "feat(utils): add add/average/clamp/formatCurrency helpers with tests",
+      "family": "utils",
+      "defects": [
+        { "id": "utils-floor", "file": "utils.js", "line": 42, "category": "logic", "severity": "medium", "description": "formatCurrency uses Math.floor instead of rounding to nearest cent" }
+      ]
+    },
+    {
+      "pr": 48,
+      "title": "feat: messy sample module (all bad)",
+      "family": "messy",
+      "defects": [
+        { "id": "messy-eval", "file": "src/messy.js", "line": 1, "category": "security", "severity": "critical", "description": "eval() on input" },
+        { "id": "messy-password", "file": "src/messy.js", "line": 1, "category": "security", "severity": "critical", "description": "hardcoded password in source" }
+      ]
+    },
+    {
+      "pr": 52,
+      "title": "debug: add token leak helper",
+      "family": "token-leak",
+      "defects": [
+        { "id": "token-leak", "file": "src/debug.ts", "line": 1, "category": "security", "severity": "critical", "description": "debug helper returns a user token" }
+      ]
+    },
+    {
+      "pr": 54,
+      "title": "feat(utils): add add/average/clamp/formatCurrency helpers with tests",
+      "family": "utils",
+      "defects": [
+        { "id": "utils-floor", "file": "utils.js", "line": 42, "category": "logic", "severity": "medium", "description": "formatCurrency uses Math.floor instead of rounding to nearest cent" }
+      ]
+    },
+    {
+      "pr": 56,
+      "title": "feat: messy sample module (all bad)",
+      "family": "messy",
+      "defects": [
+        { "id": "messy-eval", "file": "src/messy.js", "line": 1, "category": "security", "severity": "critical", "description": "eval() on input" },
+        { "id": "messy-password", "file": "src/messy.js", "line": 1, "category": "security", "severity": "critical", "description": "hardcoded password in source" },
+        { "id": "messy-mutable-globals", "file": "src/messy.js", "line": 1, "category": "logic", "severity": "medium", "description": "mutable module-level globals" }
+      ]
+    },
+    {
+      "pr": 55,
+      "title": "feat(cart): shopping cart helpers",
+      "family": "cart",
+      "defects": [
+        { "id": "cart-secret", "file": "cart.js", "line": 23, "category": "security", "severity": "critical", "description": "hardcoded API key committed to source" },
+        { "id": "cart-global-total", "file": "cart.js", "line": 4, "category": "concurrency", "severity": "medium", "description": "module-level mutable cart total shared across calls" }
+      ]
+    },
+    {
+      "pr": 57,
+      "title": "debug: add token leak helper",
+      "family": "token-leak",
+      "defects": [
+        { "id": "token-leak", "file": "src/debug.ts", "line": 1, "category": "security", "severity": "critical", "description": "debug helper returns a user token" }
+      ]
+    },
+    {
+      "pr": 66,
+      "title": "feat(utils): add add/average/clamp/formatCurrency helpers with tests",
+      "family": "utils",
+      "defects": [
+        { "id": "utils-floor", "file": "utils.js", "line": 42, "category": "logic", "severity": "medium", "description": "formatCurrency uses Math.floor instead of rounding to nearest cent" }
+      ]
+    },
+    {
+      "pr": 69,
+      "title": "debug: add token leak helper",
+      "family": "token-leak",
+      "defects": [
+        { "id": "token-leak", "file": "src/debug.ts", "line": 1, "category": "security", "severity": "critical", "description": "debug helper returns a user token" }
+      ]
+    }
+  ]
+}

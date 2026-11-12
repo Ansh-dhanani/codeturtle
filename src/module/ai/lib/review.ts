@@ -15,6 +15,36 @@ import {
   type RepoReviewStyle,
 } from "@/module/repository/lib/settings";
 
+// Shared Mermaid-diagram field: tolerates weak-model prose, drops invalid diagrams.
+const diagramField = z.string().optional().transform(val => {
+    if (!val) return val;
+    const parsed = val.replace(/\\n/g, '\n');
+    const validLines = [];
+    for (const line of parsed.split('\n')) {
+      const trimmed = line.trim();
+      const lower = trimmed.toLowerCase();
+      // Aggressive cutoff for weak LLM hallucinations (nested JSON, chat logic, etc)
+      if (
+        trimmed.startsWith('//') ||
+        trimmed.startsWith('{') ||
+        trimmed.startsWith('}') ||
+        lower.includes('this is invalid json') ||
+        lower.includes('entire_output') ||
+        lower.includes('review summary:') ||
+        trimmed.includes('```')
+      ) {
+        break;
+      }
+      validLines.push(line);
+    }
+    const candidate = validLines.join('\n').replace(/"/g, '').trim();
+    // Weak models sometimes emit prose instead of a Mermaid diagram - drop it.
+    if (!/flowchart|graph|sequenceDiagram|classDiagram|stateDiagram|erDiagram|timeline|journey|gitGraph/i.test(candidate)) {
+      return undefined;
+    }
+    return candidate;
+});
+
 const ReviewIssueSchema = z.object({
   title: z.string().default("Issue"),
   description: z.string().default("No description provided."),
@@ -59,34 +89,7 @@ const CodeReviewSchema = z.object({
   suggestions: z.array(ReviewSuggestionSchema).default([]),
   positives: z.array(z.string()).default([]),
   architectureNotes: z.string().optional(),
-  diagram: z.string().optional().transform(val => {
-    if (!val) return val;
-    const parsed = val.replace(/\\n/g, '\n');
-    const validLines = [];
-    for (const line of parsed.split('\n')) {
-      const trimmed = line.trim();
-      const lower = trimmed.toLowerCase();
-      // Aggressive cutoff for weak LLM hallucinations (nested JSON, chat logic, etc)
-      if (
-        trimmed.startsWith('//') ||
-        trimmed.startsWith('{') ||
-        trimmed.startsWith('}') ||
-        lower.includes('this is invalid json') ||
-        lower.includes('entire_output') ||
-        lower.includes('review summary:') ||
-        trimmed.includes('```')
-      ) {
-        break;
-      }
-      validLines.push(line);
-    }
-    const candidate = validLines.join('\n').replace(/"/g, '').trim();
-    // Weak models sometimes emit prose instead of a Mermaid diagram - drop it.
-    if (!/flowchart|graph|sequenceDiagram|classDiagram|stateDiagram|erDiagram|timeline|journey|gitGraph/i.test(candidate)) {
-      return undefined;
-    }
-    return candidate;
-  }),
+  diagram: diagramField,
 }).transform((data) => ({
   ...data,
   summary: data.summary || "No summary provided.",
@@ -107,6 +110,52 @@ const JudgeReviewSchema = z.object({
   architectureNotes: z.string().optional(),
   diagram: z.string().optional(),
 });
+
+// --- Finding schema v2 (opt-in via CODETURTLE_FINDING_SCHEMA=v2) ---
+// Every finding must prove itself: confidence, category, trigger/impact, and
+// evidence strings that must occur in the reviewed context. Findings without
+// evidence are dropped in sanitizeReviewOutput.
+const FINDING_V2 = ["1", "true", "on", "yes"].includes(
+  (process.env.CODETURTLE_FINDING_SCHEMA || "").toLowerCase(),
+);
+
+const V2_CATEGORIES = [
+  "logic", "runtime", "security", "data-integrity", "api-contract",
+  "concurrency", "performance", "error-handling", "testing", "maintainability",
+] as const;
+
+const ReviewIssueV2Schema = z.object({
+  title: z.string().min(1).default("Finding"),
+  description: z.string().default(""),
+  file: z.string().default("unknown"),
+  severity: z.enum(["critical", "high", "medium", "low"]).default("medium"),
+  category: z.enum(V2_CATEGORIES).default("logic"),
+  confidence: z.number().min(0).max(1).default(0.7),
+  trigger: z.string().default(""),
+  impact: z.string().default(""),
+  evidence: z.array(z.string()).default([]),
+  suggestion: z.string().default("No suggestion provided."),
+  line: z.union([z.number(), z.string()]).optional().transform(v => typeof v === "string" ? parseInt(v, 10) || 0 : v),
+});
+
+const CodeReviewV2Schema = z.object({
+  summary: z.string().default("Reviewed and ready for feedback!"),
+  overallScore: z.number().min(0).max(10).default(5),
+  issues: z.array(ReviewIssueV2Schema).default([]),
+  suggestions: z.array(ReviewSuggestionSchema).default([]),
+  positives: z.array(z.string()).default([]),
+  architectureNotes: z.string().optional(),
+  diagram: diagramField,
+});
+
+const V2_SYSTEM_ADDENDUM = `CRITICAL — finding evidence contract (schema v2): every issue MUST include ALL of the following:
+- "severity": one of "critical" | "high" | "medium" | "low". Never invent a critical.
+- "category": one of "logic" | "runtime" | "security" | "data-integrity" | "api-contract" | "concurrency" | "performance" | "error-handling" | "testing" | "maintainability"
+- "confidence": number 0-1. Anything below 0.5 will be discarded - do not report it.
+- "trigger": the exact runtime/usage conditions that make it fail (min 1 sentence).
+- "impact": the concrete consequence (min 1 sentence).
+- "evidence": an array of 1-3 VERBATIM strings from the diff/context that prove the finding (exact identifiers, lines, config keys). Do NOT paraphrase evidence.
+If you cannot produce trigger + impact + evidence for an issue, do NOT include that issue. An empty "issues" array is a valid, good answer.`;
 
 /**
  * Last-resort review synthesized when every provider attempt failed.
@@ -476,7 +525,7 @@ function getReviewCaps(modes: RepoReviewStyle[]): {
   if (shortMode) {
     return { maxIssues: 4, maxSuggestions: 3, maxPositives: 2 };
   }
-  return { maxIssues: 8, maxSuggestions: 6, maxPositives: 4 };
+  return { maxIssues: 5, maxSuggestions: 4, maxPositives: 3 };
 }
 
 function detectIssueFamily(value: string): string | null {
@@ -494,18 +543,46 @@ function sanitizeReviewOutput(
     diffContext: ParsedDiffContext;
     changedFiles: Set<string>;
     reviewModes: RepoReviewStyle[];
+    contextText?: string;
   },
 ): CodeReview {
-  const { diffContext, changedFiles, reviewModes } = params;
+  const { diffContext, changedFiles, reviewModes, contextText } = params;
   const { maxIssues, maxSuggestions, maxPositives } = getReviewCaps(reviewModes);
 
   const cleanedSummary = review.summary.trim().slice(0, 2500) || "Review generated successfully.";
   const boundedScore = Math.max(0, Math.min(10, Math.round(review.overallScore)));
 
+  // Deterministic verification (schema v2 / evidence-bearing findings):
+  // drop anything the context can't prove. No proof, no publish.
+  const haystack = contextText?.toLowerCase() ?? "";
+  const passesVerification = (issue: Record<string, unknown>): boolean => {
+    const hasV2Fields =
+      typeof issue.confidence === "number" || Array.isArray(issue.evidence) || typeof issue.trigger === "string";
+    if (!hasV2Fields && !FINDING_V2) return true;
+    if (typeof issue.confidence === "number" && issue.confidence < 0.5) return false;
+    const evidence = Array.isArray(issue.evidence) ? (issue.evidence as string[]) : [];
+    const trigger = typeof issue.trigger === "string" ? issue.trigger.trim() : "";
+    const impact = typeof issue.impact === "string" ? issue.impact.trim() : "";
+    if (FINDING_V2 && (!trigger || !impact)) return false;
+    if (evidence.length === 0) return !FINDING_V2; // no evidence -> drop only in strict mode
+    if (!haystack) return true; // no context available to check against
+    return evidence.some((entry) => {
+      const needle = String(entry || "").trim().toLowerCase().slice(0, 120);
+      return needle.length >= 4 && haystack.includes(needle);
+    });
+  };
+
+  // v2 severities downgrade to the legacy enum the render/judge pipeline understands
+  const downgradeSeverity = (severity: string): "critical" | "warning" | "info" => {
+    if (severity === "critical" || severity === "warning" || severity === "info") return severity;
+    return severity === "low" ? "info" : "warning"; // high/medium -> warning
+  };
+
   const normalizedIssues = review.issues
     .map((issue) => {
       const file = normalizeFilePath(issue.file || "");
       if (!file || !changedFiles.has(file)) return null;
+      if (!passesVerification(issue as unknown as Record<string, unknown>)) return null;
       const line =
         typeof issue.line === "number" && Number.isFinite(issue.line) && issue.line > 0
           ? Math.round(issue.line)
@@ -513,6 +590,7 @@ function sanitizeReviewOutput(
 
       return {
         ...issue,
+        severity: downgradeSeverity(String(issue.severity || "warning")),
         title: issue.title.trim().slice(0, 240),
         description: issue.description.trim().slice(0, 1600),
         suggestion: issue.suggestion.trim().slice(0, 1200),
@@ -630,6 +708,8 @@ async function judgeReviewIfPossible(
 (c) not pure style nitpicks (unless the repository explicitly asked for style review).
 
 Remove any issue/suggestion that is generic, vague, speculative, duplicates another finding, or cannot be tied to a specific location in the diff. Do NOT invent new findings. Do NOT add issues that were not in the original review. Keep the "summary" and "overallScore" fields (you may keep them unchanged). "positives" should only keep specific, grounded positives. Empty arrays are fine.
+
+STRICT VERIFICATION RULE: A finding may only survive if its claim is verifiable from the context above. If you cannot point to the exact code in the diff/context that proves the finding (or directly refutes an existing guard/check), DROP the finding. "Plausible" is not "verified". If nothing survives verification, return zero issues - an empty, honest review is the correct outcome.
 
 ## Pull Request Context:
 ${context.prContextBlock || "(none)"}
@@ -879,7 +959,7 @@ function parseReviewJson(raw: string): CodeReview {
 
   try {
     const parsed = JSON.parse(sanitized);
-    return CodeReviewSchema.parse(parsed);
+    return (FINDING_V2 ? CodeReviewV2Schema : CodeReviewSchema).parse(parsed) as CodeReview;
   } catch (parseError) {
     console.error("Failed to parse review JSON:", parseError);
     console.error("Candidate was:", candidate.slice(0, 500));
@@ -1178,15 +1258,20 @@ Provide a structured review with specific issues, suggestions, and an overall sc
 
   logger.info("Generating AI review", { owner, repo, prNumber, contextChunks: contextChunks.length, provider: selectedProvider, model: normalizedSelectedModel });
 
-  const runReviewGeneration = async (modelToUse: LanguageModel, maxOutputTokens = REVIEW_MAX_TOKENS) => {
+  const effectiveSystemPrompt = FINDING_V2 ? `${systemPrompt}\n${V2_SYSTEM_ADDENDUM}` : systemPrompt;
+  const activeReviewSchema = FINDING_V2 ? CodeReviewV2Schema : CodeReviewSchema;
+
+  const runReviewGeneration = async (modelToUse: LanguageModel, maxOutputTokens = REVIEW_MAX_TOKENS): Promise<{ object: CodeReview }> => {
     try {
-      return await generateObject({
+      const result = await generateObject({
         model: modelToUse,
-        system: systemPrompt,
+        system: effectiveSystemPrompt,
         prompt: userPrompt,
-        schema: CodeReviewSchema,
+        schema: activeReviewSchema,
         maxOutputTokens,
       });
+      // v2 payloads are normalized (severity downgrade etc.) in sanitizeReviewOutput
+      return { object: result.object as unknown as CodeReview };
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Unknown error";
       logger.warn("Structured output failed, retrying with JSON text", {
@@ -1198,7 +1283,7 @@ Provide a structured review with specific issues, suggestions, and an overall sc
 
       const { text } = await generateText({
         model: modelToUse,
-        system: systemPrompt,
+        system: effectiveSystemPrompt,
         prompt: userPrompt,
         maxOutputTokens,
       });
@@ -1322,12 +1407,13 @@ ${files.map((f) => `- ${f.filename} (${f.status}, +${f.additions}/-${f.deletions
 ` : ""}
 
 Provide a structured review with specific issues, suggestions, and an overall score.`;
-      const reducedRun = async (modelToUse: LanguageModel, maxOutputTokens = REVIEW_MAX_TOKENS) => {
+      const reducedRun = async (modelToUse: LanguageModel, maxOutputTokens = REVIEW_MAX_TOKENS): Promise<{ object: CodeReview }> => {
         try {
-          return await generateObject({ model: modelToUse, system: systemPrompt, prompt: reducedPrompt, schema: CodeReviewSchema, maxOutputTokens });
+          const result = await generateObject({ model: modelToUse, system: effectiveSystemPrompt, prompt: reducedPrompt, schema: activeReviewSchema, maxOutputTokens });
+          return { object: result.object as unknown as CodeReview };
         } catch (err2) {
-          const { text } = await generateText({ model: modelToUse, system: systemPrompt, prompt: reducedPrompt, maxOutputTokens });
-          return { object: parseReviewJson(text) };
+          const { text } = await generateText({ model: modelToUse, system: effectiveSystemPrompt, prompt: reducedPrompt, maxOutputTokens });
+          return { object: parseReviewJson(text) as CodeReview };
         }
       };
       ({ object } = await reducedRun(google(reviewerModel), REVIEW_MAX_TOKENS));
@@ -1613,12 +1699,14 @@ Provide a structured review with specific issues, suggestions, and an overall sc
     diffContext,
     changedFiles: changedFilesSet.size > 0 ? changedFilesSet : diffContext.changedFiles,
     reviewModes,
+    contextText: reviewContext.diffForPrompt,
   });
 
   const sanitizeParams = {
     diffContext,
     changedFiles: changedFilesSet.size > 0 ? changedFilesSet : diffContext.changedFiles,
     reviewModes,
+    contextText: reviewContext.diffForPrompt,
   };
   const judgedReview = await judgeReviewIfPossible(normalizedReview, {
     owner,

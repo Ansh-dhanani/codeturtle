@@ -10,7 +10,7 @@ import { withTimeout } from "@/lib/with-timeout";
 import { Prisma } from "@prisma/client";
 import { Octokit } from "octokit";
 import { checkPerPRReviewLimit, checkUsageLimit, incrementUsage, isSpecialLimitlessUser } from "@/lib/billing.server";
-import { getFailureHumorScenario, getHumorLines, getSuccessHumorScenario } from "@/lib/review-humor";
+import { getHumorLines, getSuccessHumorScenario } from "@/lib/review-humor";
 
 type HumorScenario =
     | "success-clean"
@@ -568,7 +568,15 @@ export const reindexRepo = inngest.createFunction(
 
 
 export const processPREvent = inngest.createFunction(
-    { id: "process-pr-event", retries: 3, triggers: [{ event: "pull_request.opened" }] },
+    {
+        id: "process-pr-event",
+        retries: 3,
+        // Supersede stale runs for the same PR (force-push storms must not fan
+        // out multiple full reviews) and serialize the survivors.
+        concurrency: [{ key: "event.data.owner + '/' + event.data.repo + '#' + string(event.data.prNumber)", limit: 1 }],
+        singleton: { key: "event.data.owner + '/' + event.data.repo + '#' + string(event.data.prNumber)", mode: "cancel" },
+        triggers: [{ event: "pull_request.opened" }],
+    },
 
     async ({ event, step }) => {
         const { owner, repo, prNumber, userId, action, headSha } = event.data as {
@@ -1490,33 +1498,23 @@ export const processPREvent = inngest.createFunction(
                             ? "moonshotai/kimi-k2"
                             : rawConfiguredModel;
 
+                    const failureFooter = `\n\n👉 <a href="${settingsLink}">Adjust repository settings</a>`;
+
                     const helpText = /bad credentials|401|unauthorized/i.test(errorMessage)
                         ? "Likely cause: GitHub authorization has expired. Please reconnect your GitHub account in settings and try again."
                         : /decommissioned|no longer supported|unknown model|model .* not found|unsupported model/i.test(errorMessage)
                         ? "Likely cause: the selected provider model is no longer available (list rotated). Switch model in settings (or enable Google Gemini fallback) and retry."
                             : /no endpoints found/i.test(errorMessage)
-                                ? "Likely cause: the selected model is currently unavailable on its provider. Please switch model in settings (for OpenRouter, use openrouter/auto) and retry."
+                                ? "Likely cause: the selected model is currently unavailable on its provider. Please switch model in settings (recommended: Google Gemini 2.5 Flash) and retry."
                                 : /api key is missing|loadapikeyerror|pass it using the 'apiKey' parameter/i.test(errorMessage)
                                     ? "Likely cause: the selected provider API key is missing or invalid. Add a valid key for this provider in settings, or switch to Google Gemini."
                                     : /rate limit|429/i.test(errorMessage)
                                         ? "Likely cause: provider rate limit. Please retry in a few minutes."
                                         : /provider returned error|ai_apicallerror/i.test(errorMessage)
-                                            ? "Likely cause: provider-side model routing failure. Please switch model in settings (recommended: openrouter/auto) and retry."
+                                            ? "Likely cause: provider-side model routing failure. Please switch model in settings (recommended: Google Gemini 2.5 Flash) and retry."
                                             : "Please retry in a few minutes. If this keeps happening, contact support with this PR link.";
 
-                    const failureFooter = `\n\n👉 <a href="${settingsLink}">Adjust repository settings</a>`;
-                    const failureHumor = await getHumorLines(
-                        getFailureHumorScenario(errorMessage),
-                        undefined,
-                        { enabled: behaviorSettings.memesEnabled, dedupeKey: humorDedupeKey },
-                    );
-                    const bodyWithHumor = [
-                        `Review failed: ${configuredProvider}/${configuredModel}`,
-                        helpText,
-                        failureFooter,
-                        ...failureHumor,
-                    ].join("\n");
-
+                    // Failure comments are operational messages, not the place for memes.
                     const bodyWithoutHumor = [
                         `Review failed: ${configuredProvider}/${configuredModel}`,
                         helpText,
@@ -1535,7 +1533,7 @@ export const processPREvent = inngest.createFunction(
                             owner,
                             repo,
                             issue_number: prNumber,
-                            body: bodyWithHumor,
+                            body: bodyWithoutHumor,
                         });
                     }
                 } catch (commentErr) {

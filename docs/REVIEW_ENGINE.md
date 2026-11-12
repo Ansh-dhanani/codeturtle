@@ -1,6 +1,6 @@
 # CodeTurtle Review Engine
 
-Status: **proposed design**, grounded in the current implementation. Every "Current" claim below references the code as of `cc48daf` on `main`. Sections marked *Target* are the design to build toward. Nothing here is shipped until it is implemented and verified.
+Status: **P0 implemented** (v2 flag off by default) — 2026-11-12. P1+ still *proposed*. Every "Current" claim below references the code as of `cc48daf` on `main` and may have drifted; verify against the source before relying on specific line numbers. See `## Implementation status` below for what's live.
 
 ## Design philosophy
 
@@ -141,6 +141,17 @@ Corpus: 30–50 historical PRs with human-labeled defects (bug-fix, security, DB
 | Cost per useful finding | — | track, do not optimize away |
 
 Implementation: `scripts/benchmark.ts` (proposed) — replays PRs through `generateCodeReview` with a frozen context cache, scores against labels, emits a JSON report. Not in CI initially.
+
+## Implementation status
+
+**P0 — implemented 2026-11-12 (behind `CODETURTLE_FINDING_SCHEMA=v2`):**
+1. `processPREvent` now has `concurrency` (limit 1 per PR) + `singleton: { mode: "cancel" }` — force-push storms supersede stale runs instead of flooding the PR. (`src/inngest/functions.ts`)
+2. Finding schema v2 (`severity critical|high|medium|low`, `category`, `confidence`, `trigger`, `impact`, `evidence[]`) implemented alongside the legacy schema; active only when `CODETURTLE_FINDING_SCHEMA=v2`. (`src/module/ai/lib/review.ts`)
+3. Deterministic verification pass before the judge: file must be in the changed set (existing), line must be within ±3 of a changed hunk (existing), plus new evidence-string check (every evidence entry must appear in the context when provided) and confidence ≥ 0.5 in v2 mode. Judge prompt now refute-don't-rewrite with an explicit "unverifiable = drop" rule.
+4. Finding cap: 5 issues / 3 positives (was 8/4). Failure comments no longer include memes; recommendation text points at Gemini, not `openrouter/auto`.
+5. Benchmark skeleton: `scripts/benchmark.ts` (dry-run) + `scripts/benchmark-corpus.json` (12 labeled seeded-bug PRs from the test repo, labels from PR-body confessions). Live runner intentionally unimplemented — requires GitHub+DB env.
+
+**Not yet done:** conditional specialized passes (P1.6), caller/callee retrieval (P1.7), head-SHA context cache (P1.8), dismiss/feedback accounting (P1.9), static-analysis integration (P2.10), full benchmark run with held-out corpus (P2.11), token budgets/quota management (P2.12). The 90%+ precision target remains **unmeasured** — do not market quality until the benchmark says so.
 
 ## Implementation phases
 
