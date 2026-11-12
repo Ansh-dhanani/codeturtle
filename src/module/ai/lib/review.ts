@@ -115,7 +115,7 @@ const JudgeReviewSchema = z.object({
 // Every finding must prove itself: confidence, category, trigger/impact, and
 // evidence strings that must occur in the reviewed context. Findings without
 // evidence are dropped in sanitizeReviewOutput.
-const FINDING_V2 = ["1", "true", "on", "yes"].includes(
+const FINDING_V2 = ["1", "true", "on", "yes", "v2"].includes(
   (process.env.CODETURTLE_FINDING_SCHEMA || "").toLowerCase(),
 );
 
@@ -1380,6 +1380,11 @@ Provide a structured review with specific issues, suggestions, and an overall sc
   const effectiveSystemPrompt = FINDING_V2 ? `${systemPrompt}\n${V2_SYSTEM_ADDENDUM}` : systemPrompt;
   const activeReviewSchema = FINDING_V2 ? CodeReviewV2Schema : CodeReviewSchema;
 
+  // OpenAI-compatible strict-schema mode rejects schemas using defaults/optionals
+  // (Groq/OpenRouter free tiers). Google/Anthropic read only their own providerOptions
+  // key, so this is a no-op for them.
+  const relaxJsonSchema = { openai: { strictJsonSchema: false } } as const;
+
   const runReviewGeneration = async (modelToUse: LanguageModel, maxOutputTokens = REVIEW_MAX_TOKENS): Promise<{ object: CodeReview }> => {
     const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
     const isRateLimit = (msg: string) => /429|rate[- ]?limit|quota|overloaded|resource[_ ]?exhausted/i.test(msg);
@@ -1396,6 +1401,7 @@ Provide a structured review with specific issues, suggestions, and an overall sc
         prompt: userPrompt,
         schema: activeReviewSchema,
         maxOutputTokens,
+        providerOptions: relaxJsonSchema,
       });
       logUsage("generate", result.usage as Record<string, unknown> | undefined);
       // v2 payloads are normalized (severity downgrade etc.) in sanitizeReviewOutput
@@ -1413,6 +1419,7 @@ Provide a structured review with specific issues, suggestions, and an overall sc
             prompt: userPrompt,
             schema: activeReviewSchema,
             maxOutputTokens,
+            providerOptions: relaxJsonSchema,
           });
           logUsage("generate-retry", retryResult.usage as Record<string, unknown> | undefined);
           return { object: retryResult.object as unknown as CodeReview };
@@ -1590,7 +1597,7 @@ ${files.map((f) => `- ${f.filename} (${f.status}, +${f.additions}/-${f.deletions
 Provide a structured review with specific issues, suggestions, and an overall score.`;
       const reducedRun = async (modelToUse: LanguageModel, maxOutputTokens = REVIEW_MAX_TOKENS): Promise<{ object: CodeReview }> => {
         try {
-          const result = await generateObject({ model: modelToUse, system: effectiveSystemPrompt, prompt: reducedPrompt, schema: activeReviewSchema, maxOutputTokens });
+          const result = await generateObject({ model: modelToUse, system: effectiveSystemPrompt, prompt: reducedPrompt, schema: activeReviewSchema, maxOutputTokens, providerOptions: relaxJsonSchema });
           return { object: result.object as unknown as CodeReview };
         } catch (err2) {
           const { text } = await generateText({ model: modelToUse, system: effectiveSystemPrompt, prompt: reducedPrompt, maxOutputTokens });
