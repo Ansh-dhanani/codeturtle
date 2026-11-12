@@ -159,6 +159,7 @@ async function buildProgressBody(
     ].join("\n");
 
     const lines = [
+        "<!-- codeturtle-review-progress -->",
         "## 🐢 CodeTurtle is reviewing this PR",
         "",
         "<details open>",
@@ -919,6 +920,19 @@ export const processPREvent = inngest.createFunction(
             const progressGifUrl = await step.run("Post review in progress comment", async () => {
                 const octokit = await getPreferredOctokit(owner, repo, userId);
 
+                // Reuse an existing progress comment if one exists on this PR so
+                // repeated runs don't pile up duplicate banners across re-opens/syncs.
+                const existing = await octokit.rest.issues.listComments({
+                    owner,
+                    repo,
+                    issue_number: prNumber,
+                    per_page: 50,
+                });
+                const marker = "<!-- codeturtle-review-progress -->";
+                const existingProgress = existing.data.find(
+                    (c) => typeof c.body === "string" && c.body.includes(marker) && c.user?.type === "Bot",
+                );
+
                 // Generate initial comment with meme GIF
                 const { body, gifUrl } = await buildProgressBody(
                     "Review in progress...",
@@ -927,6 +941,18 @@ export const processPREvent = inngest.createFunction(
                     null,
                     { owner, repo, prNumber, headSha: headSha || effectiveHeadSha, runId: reviewRunId },
                 );
+
+                if (existingProgress) {
+                    progressCommentId = existingProgress.id;
+                    await octokit.rest.issues.updateComment({
+                        owner,
+                        repo,
+                        comment_id: existingProgress.id,
+                        body,
+                    });
+                    l.info("Reused existing review progress comment", { owner, repo, prNumber, commentId: existingProgress.id });
+                    return gifUrl;
+                }
 
                 const { data: comment } = await octokit.rest.issues.createComment({
                     owner,

@@ -53,17 +53,13 @@ export function LandingHero() {
 
 			<div className="relative px-4 py-2 text-center md:px-6 md:py-4">
 				<div className="relative mx-auto mt-4 flex max-w-3xl flex-col items-center gap-6 text-slate-900 md:mt-6 dark:text-white">
-					<h1 className="font-heading text-balance text-3xl leading-[1.05] font-medium tracking-tight md:text-5xl">
-						Not just your{" "}
-						<span className="font-serif italic">diff.</span>
-						<br />
-						Your{" "}
-						<span className="font-serif italic">entire repository.</span>
+					<h1 className="font-heading text-balance text-3xl leading-[1.1] font-medium tracking-tight md:text-5xl">
+						Free AI code review on every PR,{" "}
+						<span className="font-serif italic">every month</span>
 					</h1>
 					<p className="max-w-xl text-pretty text-balance text-sm text-slate-800 md:text-base dark:text-sky-100">
-						Repository-aware reviews. Contextual findings. Fewer false positives.
-						CodeTurtle reads the diff <em>and</em> the code around it, so reviews
-						pass for the right reasons.
+						<strong>45+ free models</strong> powering 20 reviews/month on 5 repos -
+						no credit card, no strings. <em>Works for any GitHub repository.</em>
 					</p>
 					<div className="flex flex-wrap items-center justify-center gap-3">
 						<Button asChild size="lg">
