@@ -108,6 +108,7 @@ export async function checkUsageLimit(userId: string): Promise<{ allowed: boolea
 }
 
 export async function incrementUsage(userId: string): Promise<void> {
+  if (await isSpecialLimitlessUser(userId)) return;
   await prisma.subscription.updateMany({
     where: { userId },
     data: { usageCount: { increment: 1 } },
