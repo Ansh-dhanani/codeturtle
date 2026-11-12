@@ -619,11 +619,10 @@ async function judgeReviewIfPossible(
   },
 ): Promise<CodeReview> {
   try {
-    const openRouterKey = process.env.OPENROUTER_API_KEY;
-    const judgeModel = openRouterKey
-      ? createOpenAI({ apiKey: openRouterKey, baseURL: "https://openrouter.ai/api/v1" })("openrouter/auto")
-      : google("gemini-2.5-flash");
-    const judgeModelName = openRouterKey ? "openrouter/auto" : "gemini-2.5-flash";
+    // Judge stays on the same verified model as the default reviewer - never
+    // route the judge through openrouter/auto (its free pool can hand us a broken model).
+    const judgeModel = google("gemini-2.5-flash");
+    const judgeModelName = "gemini-2.5-flash";
 
     const judgePrompt = `You are a strict code-review judge. Given the pull request context and a generated code review (JSON), return an UPDATED review JSON containing ONLY the findings that are:
 (a) clearly grounded in the actual diff/code shown below,

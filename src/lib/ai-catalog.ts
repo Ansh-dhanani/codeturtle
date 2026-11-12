@@ -29,8 +29,10 @@ export type CatalogProvider = {
 
 const CACHE_TTL_MS = 1000 * 60 * 30; // 30 minutes
 
-/** Default review model when the user/repo hasn't picked one. Stable, no ranking involved. */
-const DEFAULT_REVIEW_MODEL = { provider: "openrouter", model: "openrouter/auto" } as const;
+/** Default review model when the user/repo hasn't picked one.
+ * Pinned to a model we've verified end-to-end (Google Gemini 2.5 Flash) —
+ * NOT `openrouter/auto`, whose free pool can silently route to weak/broken models. */
+const DEFAULT_REVIEW_MODEL = { provider: "google", model: "gemini-2.5-flash" } as const;
 
 export function getDefaultReviewModel(): { provider: string; model: string } {
   return { ...DEFAULT_REVIEW_MODEL };
