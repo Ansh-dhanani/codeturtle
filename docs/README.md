@@ -5,6 +5,7 @@ This document consolidates the project's key documentation into a single referen
 ## Quick Links
 - Getting started: see the main `README.md`
 - Contributing: `CONTRIBUTING.md`
+- Review engine design: `REVIEW_ENGINE.md`
 
 ---
 
