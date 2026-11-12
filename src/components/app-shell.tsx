@@ -6,15 +6,17 @@ import { AppSidebar } from "@/components/app-sidebar";
 export function AppShell({
 	children,
 	pathname = "#/overview",
+	isAdmin = false,
 }: {
 	children: React.ReactNode;
 	pathname?: string;
+	isAdmin?: boolean;
 }) {
 	return (
 		<div className="overflow-hidden">
 			<SidebarProvider className="relative h-svh w-full lg:border-x">
 				<FullWidthDivider contained className="top-14 z-60 -translate-y-px" />
-				<AppSidebar pathname={pathname} />
+				<AppSidebar pathname={pathname} isAdmin={isAdmin} />
 				<SidebarInset className="min-w-0 overflow-hidden">
 					<AppHeader pathname={pathname} />
 					<div className="flex flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto p-4 md:p-6">

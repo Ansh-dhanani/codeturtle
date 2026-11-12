@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
-import { requireAdmin } from "@/lib/admin";
+import { requireAuth } from "@/lib/auth-utils";
+import { isAdminUser } from "@/lib/admin";
 import { getAdminOverview } from "@/module/admin/actions";
 import { AdminDashboard } from "@/components/admin/admin-dashboard";
 import type { Metadata } from "next";
@@ -12,10 +13,10 @@ export const metadata: Metadata = {
 };
 
 export default async function AdminPage() {
-  // Gate: non-admins see a 404, not a hint that /admin exists.
-  try {
-    await requireAdmin();
-  } catch {
+  const session = await requireAuth();
+
+  // Non-admins see a plain 404 — nothing hints the route exists.
+  if (!(await isAdminUser(session.user.id))) {
     notFound();
   }
 

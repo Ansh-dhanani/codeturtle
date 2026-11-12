@@ -1,7 +1,4 @@
-"use client";
-
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import {
 	Sidebar,
 	SidebarContent,
@@ -17,22 +14,7 @@ import { footerNavLinks, navGroups, adminNavItem } from "@/components/app-shared
 import { NavUser } from "@/components/nav-user";
 import { BrandMark } from "@/components/brand-mark";
 
-
-export function AppSidebar({ pathname }: { pathname?: string }) {
-	const [isAdmin, setIsAdmin] = useState(false);
-
-	useEffect(() => {
-		let cancelled = false;
-		import("@/module/admin/actions").then(({ isCurrentUserAdmin }) =>
-			isCurrentUserAdmin().then((result) => {
-				if (!cancelled) setIsAdmin(result);
-			}),
-		);
-		return () => {
-			cancelled = true;
-		};
-	}, []);
-
+export function AppSidebar({ pathname, isAdmin = false }: { pathname?: string; isAdmin?: boolean }) {
 	const groups = isAdmin
 		? navGroups.map((group, index) =>
 				index === navGroups.length - 1

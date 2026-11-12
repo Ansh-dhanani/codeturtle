@@ -1,20 +1,8 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requireAdmin, isAdminEmail } from "@/lib/admin";
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
+import { requireAdmin } from "@/lib/admin";
 import { logger } from "@/lib/logger";
-
-/** Lightweight client-side check for showing/hiding admin navigation. Actual access is ALWAYS enforced server-side. */
-export async function isCurrentUserAdmin(): Promise<boolean> {
-  try {
-    const session = await auth.api.getSession({ headers: await headers() });
-    return isAdminEmail(session?.user?.email ?? null);
-  } catch {
-    return false;
-  }
-}
 
 /** Comp a user to Pro for N months (default 1). Expiry is enforced lazily in billing.server (no cron needed). */
 export async function grantCompPro(params: { userId: string; months?: number }): Promise<{ ok: true } | { ok: false; error: string }> {
