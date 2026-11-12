@@ -3,6 +3,7 @@ import { PLANS, type PlanName, type SubscriptionStatus } from "./billing";
 import { logger } from "@/lib/logger";
 
 const FREE_REVIEWS_PER_PR_LIMIT = 5;
+const PRO_REVIEWS_PER_PR_LIMIT = 10;
 
 // Comma-separated list of special (unlimited) users, usually GitHub logins,
 // matched case-insensitively against the user's accountId, name, email, or
@@ -113,12 +114,37 @@ export async function getOrCreateSubscription(userId: string) {
   return subscription;
 }
 
+/** True when the user has connected their own provider API key (BYOK). */
+async function hasOwnApiKey(userId: string): Promise<boolean> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { aiApiKey: true },
+  });
+  return Boolean(user?.aiApiKey);
+}
+
 export async function checkUsageLimit(userId: string): Promise<{ allowed: boolean; limit: number; used: number; remaining: number }> {
   if (await isSpecialLimitlessUser(userId)) {
     return { allowed: true, limit: -1, used: 0, remaining: -1 };
   }
 
   const subscription = await getOrCreateSubscription(userId);
+  const ownKey = await hasOwnApiKey(userId);
+
+  // Pro/Enterprise with BYOK → unlimited managed-volume is not billed against shared infra.
+  if (subscription.plan !== "free" && ownKey) {
+    return { allowed: true, limit: -1, used: 0, remaining: -1 };
+  }
+
+  // Sync usageLimit with current plan config (handles plan config changes)
+  const planConfig = PLANS[subscription.plan as PlanName] || PLANS.free;
+  if (subscription.usageLimit !== planConfig.reviewLimit) {
+    await prisma.subscription.update({
+      where: { id: subscription.id },
+      data: { usageLimit: planConfig.reviewLimit },
+    });
+    subscription.usageLimit = planConfig.reviewLimit;
+  }
 
   const now = new Date();
   if (subscription.usageResetAt && now >= subscription.usageResetAt) {
@@ -156,9 +182,11 @@ export async function checkPerPRReviewLimit(params: {
   }
 
   const subscription = await getOrCreateSubscription(params.userId);
-  if (subscription.plan !== "free") {
+  if (subscription.plan === "enterprise" || await isSpecialLimitlessUser(params.userId) || (subscription.plan !== "free" && await hasOwnApiKey(params.userId))) {
     return { allowed: true, limit: -1, used: 0, remaining: -1 };
   }
+
+  const perPrLimit = subscription.plan === "pro" ? PRO_REVIEWS_PER_PR_LIMIT : FREE_REVIEWS_PER_PR_LIMIT;
 
   const { start, end } = getCurrentMonthRange();
   const used = await prisma.codeReview.count({
@@ -174,10 +202,10 @@ export async function checkPerPRReviewLimit(params: {
     },
   });
 
-  const remaining = Math.max(0, FREE_REVIEWS_PER_PR_LIMIT - used);
+  const remaining = Math.max(0, perPrLimit - used);
   return {
-    allowed: used < FREE_REVIEWS_PER_PR_LIMIT,
-    limit: FREE_REVIEWS_PER_PR_LIMIT,
+    allowed: used < perPrLimit,
+    limit: perPrLimit,
     used,
     remaining,
   };
@@ -189,11 +217,12 @@ export async function getPerPRUsageSnapshot(userId: string): Promise<{ limit: nu
   }
 
   const subscription = await getOrCreateSubscription(userId);
-  if (subscription.plan !== "free") {
+  if (subscription.plan === "enterprise" || await isSpecialLimitlessUser(userId) || (subscription.plan !== "free" && await hasOwnApiKey(userId))) {
     return { limit: -1, used: 0, remaining: -1 };
   }
 
-  return { limit: FREE_REVIEWS_PER_PR_LIMIT, used: 0, remaining: FREE_REVIEWS_PER_PR_LIMIT };
+  const perPrLimit = subscription.plan === "pro" ? PRO_REVIEWS_PER_PR_LIMIT : FREE_REVIEWS_PER_PR_LIMIT;
+  return { limit: perPrLimit, used: 0, remaining: perPrLimit };
 }
 
 export async function canConnectRepo(userId: string): Promise<boolean> {

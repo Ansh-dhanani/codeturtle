@@ -9,9 +9,9 @@ export const PLANS = {
   pro: {
     name: "Pro",
     price: 4,
-    reviewLimit: -1,
-    repoLimit: -1,
-    features: ["Unlimited reviews", "Unlimited repositories", "Unlimited reviews per PR", "Unlimited commits per PR", "Bring your own API keys", "Custom rules (custom prompts)", "Priority support"],
+    reviewLimit: 100,
+    repoLimit: 10,
+    features: ["100 reviews/month on managed keys (unlimited with your own key)", "10 repositories", "10 reviews per PR", "5 commits per PR max", "Bring your own API keys", "Custom rules (custom prompts)", "Priority support"],
   },
   enterprise: {
     name: "Enterprise",

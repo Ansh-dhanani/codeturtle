@@ -40,7 +40,7 @@ const faqs = [
 	{
 		question: "I maintain an open-source project - is this really free?",
 		answer:
-			"Yes. The free tier gives 20 reviews per month with no credit card required. Pro and Enterprise plans unlock unlimited reviews, custom rules, and bring-your-own API keys for larger codebases.",
+			"Yes. The free tier gives 20 reviews per month with no credit card required. Pro plan gives 100 reviews per month on managed keys (or unlimited with your own API key), higher repository and per-PR limits. Enterprise unlocks unlimited reviews, custom rules, and bring-your-own API keys for larger codebases.",
 	},
 ];
 

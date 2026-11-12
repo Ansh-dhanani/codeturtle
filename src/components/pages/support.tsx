@@ -80,7 +80,7 @@ export default function SupportPageContent() {
             <Faq q="Can I use my own AI model?" a="Yes. Free: Google Gemini + OpenRouter free models. Pro: bring your own keys for Anthropic, Google or any OpenAI-compatible provider." />
             <Faq q="Why is my favorite free model missing?" a="OpenRouter rotates free slugs. We refresh the catalog live on every connect, so retired slugs disappear and new ones show up — no action needed by you." />
             <Faq q="Why does it say 'not a fork'?" a="Connections are restricted to repositories you own or can admin. Check the GitHub App OAuth scope in Settings and reconnect if it's missing admin:repo_hook." />
-            <Faq q="How are reviews priced on the free plan?" a="Free = 20 reviews/mo, 5 repos, 5 reviews per PR, 3 commits per PR. Bring your own provider key and you get unlimited reviews on Pro." />
+            <Faq q="How are reviews priced on the free plan?" a="Free = 20 reviews/mo, 5 repos, 5 reviews per PR, 3 commits per PR. Pro adds 100 reviews/mo on managed keys - unlimited with your own API key." />
             <Faq q="Is my API key safe?" a="AES-256-GCM at rest, derived from AUTH_SECRET. We never log it, never expose it, never send it anywhere else. You can rotate it instantly in Settings." />
             <Faq q="How do I cancel?" a="Billing → Manage → the Polar portal opens. Cancel any time — access continues until the end of the month, then drops to Free automatically." />
           </Accordion>

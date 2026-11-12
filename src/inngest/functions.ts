@@ -37,7 +37,7 @@ const MAX_FREE_PLAN_PR_FILES = 100;
 const PRISMA_MAX_RETRIES = 3;
 
 const BILLING_URL = (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/+$/, "") + "/billing";
-const UPGRADE_CTA = `\n\n**[Upgrade to Pro ($4/mo) for unlimited reviews, repos, and commits →](${BILLING_URL})**`;
+const UPGRADE_CTA = `\n\n**[Upgrade to Pro ($4/mo) for 100 reviews/mo on managed keys - unlimited with your own API key →](${BILLING_URL})**`;
 
 function sleep(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));

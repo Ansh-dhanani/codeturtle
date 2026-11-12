@@ -11,7 +11,7 @@ CodeTurtle connects to GitHub with a per-repository signed webhook. Every pull r
 Key facts:
 
 - Free plan: 20 reviews/month, 5 repositories, 5 reviews per PR, 3 commits per PR max, all free models
-- Pro ($4/mo): unlimited reviews, repositories, PRs and commits, bring-your-own API keys (AES-256-GCM at rest), custom rules
+- Pro ($4/mo): 100 reviews/month on managed keys, 10 repos, 10 reviews/PR, 5 commits/PR, unlimited reviews with your own API key, custom rules
 - Enterprise ($49/mo launch pricing): everything in Pro plus org onboarding and dedicated support
 - Default model: OpenRouter auto-router (routes to the best live model under your plan); catalog is fetched live every 30 minutes
 - Reviews re-run on every push; \`@codeturtle <question>\` in a PR thread gets a grounded reply in the same thread

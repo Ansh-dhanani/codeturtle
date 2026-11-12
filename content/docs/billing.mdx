@@ -8,7 +8,7 @@ description: Free, Pro, and Enterprise - limits, upgrades, and how billing works
 | Plan | Price | What you get |
 | --- | --- | --- |
 | **Free** | $0 | 20 reviews/mo · 5 repositories · 5 reviews per PR · 3 commits per PR max · max 100 changed files per review · all free models |
-| **Pro** | $4/mo | Unlimited reviews, repositories, PRs, and commits · all free models · bring your own API keys · custom rules · priority support |
+| **Pro** | $4/mo | 100 reviews/mo on managed keys · 10 repositories · 10 reviews/PR · 5 commits/PR max · unlimited reviews with your own API key · custom rules · priority support |
 | **Enterprise** | $49/mo ~~$99~~ | Everything in Pro · org onboarding · dedicated help |
 
 Enterprise pricing reflects a **50% launch discount** for early adopters - the struck-through $99/mo is the standard price after the launch window closes.
@@ -32,7 +32,7 @@ Checkout and subscription management run through **[Polar](https://polar.sh)**. 
     CodeTurtle validates the Standard Webhooks signature, matches the checkout to your account, and bumps your plan to Pro/Enterprise - usually before the checkout page returns.
   </Step>
   <Step>
-    You get the Pro badge in the dashboard, unlimited usage, and BYOK unlocked immediately. No re-login required.
+    You get the Pro badge in the dashboard, 100 reviews/month on managed keys (or unlimited with your own API key), and BYOK unlocked immediately. No re-login required.
   </Step>
 </Steps>
 
@@ -41,7 +41,7 @@ Downgrades go through the opposite path: `subscription.canceled` snaps limits ba
 ## Usage & limits
 
 - [Billing](/billing) shows this month's review count, plan, and reset date
-- Free usage resets on your billing cycle; Pro has no visible counters because there is no limit
+- Free usage resets on your billing cycle; Pro is capped at 100 reviews/month on managed keys (unmetered with your own API key)
 - If a review can't run due to plan limits, CodeTurtle tells you why on the PR comment and links to upgrade
 
 ## Invoices & receipts

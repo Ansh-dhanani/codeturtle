@@ -65,10 +65,11 @@ const plans: Plan[] = [
 		},
 		price: { monthly: 4, yearly: 3 },
 		features: [
-			"Unlimited reviews",
-			"Unlimited repositories",
-			"Unlimited reviews per PR",
-			"Unlimited commits per PR",
+			"100 reviews/month on managed keys",
+			"10 repositories",
+			"10 reviews per PR",
+			"5 commits per PR max",
+			"Unlimited reviews with your own API key",
 			"Bring your own API keys",
 			"Custom rules (custom prompts)",
 			"Priority support",
@@ -131,7 +132,7 @@ export function PricingSection({
 				))}
 			</div>
 			<p className="text-center text-muted-foreground text-xs">
-				Free tier ships 20 reviews/mo. Upgrade when you need unlimited reviews, custom rules, and bring-your-own keys.
+				Free tier ships 20 reviews/mo. Pro gives 100 reviews/mo on managed keys (plus unlimited with your own API key). Upgrade to Enterprise for unlimited reviews, custom rules, and bring-your-own keys.
 			</p>
 		</div>
 	);
