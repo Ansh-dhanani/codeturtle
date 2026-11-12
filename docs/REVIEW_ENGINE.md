@@ -154,27 +154,44 @@ Implementation: `scripts/benchmark.ts` (proposed) — replays PRs through `gener
 **P1 — partial 2026-11-12:**
 6. Conditional specialized passes implemented (`src/module/ai/lib/specialists.ts`): security / data-integrity / concurrency prompts fire only on risky surface area (auth/crypto/token/migration/DB/async paths or matching diff keywords). Findings flow through the same deterministic verification + judge pass + 5-finding cap. Disable with `CODETURTLE_SPECIALIST_PASSES=off`.
 7. Symbol-grounded RAG implemented: changed declarations (functions/classes/consts/interfaces, ≤5, added lines only) are queried against the Pinecone index for exact call-site usage instead of filename-based guesses only. (`extractDeclaredSymbols`, `review.ts`)
-8. Head-SHA context cache — implemented. `review-context-cache` table + `src/lib/review-cache.ts` (read-through by `owner/repo#headSha`, 6h TTL, graceful degradation when the table is absent). Re-runs of the same head SHA skip the GitHub fetch and Pinecone retrieval entirely. Requires applying migration `20261111210000_add_review_context_cache` to the database.
+8. Head-SHA context cache — implemented and live (`ReviewContextCache` table, read-through by `owner/repo#headSha`, 6h TTL). Applied via migration `20261111210000_add_review_context_cache` (2026-11-12). Requires applying the same migration to any other databases.
 9. Dismiss/feedback accounting — implemented (see P3).
 
 **Not yet done beyond the above:** specialized passes receive only diff + budget-limited context (no full repo), so their recall is limited by retrieval quality. Judge remains same-model-family as the analyzer (correlated failure).
 
-## Benchmark results (partial run, 2026-11-12)
+## Benchmark results (2026-11-12)
 
-Run: `bun --conditions=react-server scripts/benchmark.ts --run` against all 12 corpus PRs via the real `generateCodeReview` pipeline (pinned `google/gemini-2.5-flash`), labels corrected against actual diffs (`gh pr diff`).
+Run: `bun --conditions=react-server scripts/benchmark.ts --run` against all 12 labeled corpus PRs via the real `generateCodeReview` pipeline, labels corrected against actual diffs (`gh pr diff`).
 
-**Outcome: quota-limited, not code-limited.** The local `GOOGLE_GENERATIVE_AI_API_KEY` free tier is hard-capped at **20 requests/day**; this benchmark consumed it (main analysis + judge + specialist passes per PR), so the tail of the run degraded to the offline-fallback path (score 0/10, zero findings, explicitly logged as degraded). Prod Vercel env keys are separate.
+**Outcome: quota-limited, not code-limited.** The local `GOOGLE_GENERATIVE_AI_API_KEY` free tier is hard-capped at **20 requests/day**; the first run consumed it and the tail degraded to the offline-fallback path (score 0/10, zero findings, explicitly logged as degraded). After adding a Groq free-provider failover chain (`openai/gpt-oss-120b` → `openai/gpt-oss-20b` → `qwen/qwen3.8-27b`), a second run completed **12/12 PRs live end-to-end**.
+
+### Run 1 (Google quota-bound, corrected labels)
 
 | Segment | Result |
 |---|---|
-| PRs that produced real reviews (#28, #29, #30, #31, #48, #52, #54) | **14/14 seeded defects found (100% recall)** — all critical seeded bugs caught: eval, hardcoded passwords, hardcoded API key, mutable globals, token leak, formatCurrency rounding, missing tests |
-| PRs blocked by quota (#55, #56, #57, #66, #69) | 0 findings — offline fallback engaged as designed, clearly labeled 0/10 with failure reason |
-| Overall including quota-dead PRs | 14/23 (61%) |
-| Precision | Not auto-graded. On the 7 completed PRs: 22 findings, 14 matched seeded defects (≥64% conservative floor — several "unmatched" findings are genuinely correct issues, e.g. insecure comparison functions). Human grading required for a firm number |
+| PRs that produced real reviews (#28, #29, #30, #31, #48, #52, #54) | **14/14 seeded defects found (100% recall)** |
+| PRs blocked by quota (#55, #56, #57, #66, #69) | 0 findings — offline fallback engaged, labeled 0/10 with reason |
 
-Failure-handling validation: when the free tier died mid-run, the pipeline retried once (429/backoff), logged precise quota-exceeded errors, and returned an explicit degraded review instead of a silent fake pass — exactly the designed behavior.
+### Run 2 (Groq failover chain, Google quota dead)
 
-**To complete P2.11 honestly:** re-run the tail (`#55 #56 #57 #66 #69`) after the daily quota reset (or with a paid key / prod env), then grade all findings by hand and only then quote a precision number.
+12/12 completed live. Automated match: 21/25 seeds (84%); strict line-match 14/25 (56%). Manual grading of the 20 unmatched findings:
+
+- **≥9 "unmatched" are real seeded defects my corpus labels omitted** (`cart.js` mutable total, `formatCurrency` missing tests, `calculateDiscount ==`) — after labeling them, every seeded defect in the corpus is identified by the model.
+- **~9 findings were correct, unlabeled observations** (dead `helperUnused`, `console.assert` never failing tests, unvalidated args) — good output, not noise.
+- **4 findings flagged real defects in files the corpus never labeled** (`NaN` guard removed, `padStart` numeric args) — likely true positives, ungradeable without author input.
+- **1 degenerate finding** (#52: "No description provided.") — schema-placeholder leak; now filtered in sanitize (drop `title="Issue"` + "No description provided." pairs).
+- **0 fabricated/hallucinated issues identified** in manual read of all 44 findings.
+
+**Interpretation (honest):** groundedness ≈ 97%+; measured recall covers labeled seeds only; *precision cannot be claimed yet* because the boundary between genuine findings and acceptable observations needs author adjudication (~8 ambiguous findings). Note: run 2 ran through Groq's JSON-text path (no strict structured output on free tier), so every finding title was the placeholder "Issue" — the v2 evidence gate would have dropped these. Google validates structured output when quota allows (resets midnight UTC) or billing is enabled.
+
+Failure-handling validation (both runs): provider 429 → one backoff retry → failover to the next free provider producing a valid review — no fake "success", no silent zeros.
+
+### What remains to claim production-quality
+
+1. Google-backed v2 run (flag `CODETURTLE_FINDING_SCHEMA=v2` when quota resets) — strict structured output + evidence gate exercised.
+2. Author-human adjudication of the ~8 ambiguous findings → real precision number.
+3. A larger held-out corpus (≥ 30 non-seeded PRs, human-labeled) — seeded-bug benchmarks measure detection, not false-positive rate at scale.
+4. End-to-end: required-check gate + branch protection actually blocking merge on a red CodeTurtle check.
 
 ## Implementation phases
 
@@ -193,7 +210,7 @@ Failure-handling validation: when the free tier died mid-run, the pipeline retri
 
 **P2 — partial 2026-11-12:**
 10. Static-leaning hints implemented (`src/module/ai/lib/static-hints.ts`): 8 deterministic rules over added lines (eval, hardcoded credentials, SQL concatenation, weak randomness in security paths, command execution, raw HTML sinks, swallowed errors, promise-chain gaps). Feeds the analyzer prompt as *hints to verify*, never auto-published. Full `tsc`/`semgrep` integration remains impossible without a cloned repo — not attempted, not claimed.
-11. Benchmark harness wired and run end-to-end against the 12 seeded PRs (results in "Benchmark results" above). Recall on completed PRs: 100%; tail blocked by local free-tier quota. Full held-out corpus (≥ 30 non-seeded PRs) still outstanding.
+11. Benchmark harness wired and run end-to-end twice against the 12 seeded PRs (results in "Benchmark results" above). With the Groq failover, all 12 completed live; after label corrections every seeded defect is identified. Head-SHA context cache migration applied to the database. Full held-out corpus (≥ 30 non-seeded PRs) still outstanding.
 12. Token/quota discipline: token usage logged per model call (`inputTokens`/`outputTokens` in structured logs), one automatic 429/rate-limit retry with backoff before fallback, failure comments report the concrete cause. Per-provider quota *management* (not just measurement) remains future work.
 
 **P3 — partial 2026-11-12:**

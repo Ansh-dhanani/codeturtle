@@ -200,6 +200,10 @@ const MODEL_CONTEXT_TOKENS: Record<string, number> = {
   "claude-haiku-3-5-20241022": 200000,
   "llama-3.3-70b-versatile": 32768,
   "llama-3.1-8b-instant": 32768,
+  "openai/gpt-oss-120b": 128000,
+  "openai/gpt-oss-20b": 128000,
+  "qwen/qwen3.8-27b": 128000,
+  "allam-2-7b": 128000,
   "qwen/qwen3-coder:free": 32768,
   "moonshotai/kimi-k2": 163840,
   "nvidia/nemotron-3-nano-30b-a3b:free": 163840,
@@ -620,6 +624,13 @@ function sanitizeReviewOutput(
     })
     .filter((issue): issue is NonNullable<typeof issue> => Boolean(issue))
     .filter((issue) => issue.title.length > 0 && issue.description.length > 0 && issue.suggestion.length > 0)
+    .filter((issue) => {
+      // Drop placeholder issues: model returned an essentially empty JSON object,
+      // and our schema defaults fabricated the rest.
+      const placeholderTitle = /^issue$/i.test(issue.title.trim());
+      const placeholderDesc = /^no description provided\.?$/i.test(issue.description.trim());
+      return !(placeholderTitle && placeholderDesc);
+    })
     .sort((a, b) => {
       const severityDelta = SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity];
       if (severityDelta !== 0) return severityDelta;
@@ -1512,6 +1523,36 @@ Provide a structured review with specific issues, suggestions, and an overall sc
   } catch (err) {
     try {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
+
+    // Free-provider failover chain: free tiers are small (Gemini ~20 req/day).
+    // If the primary failed for ANY reason, try Groq's free pool next, then let
+    // the remaining recovery tree handle whatever is left (OpenRouter free, etc.).
+    let chainRecovered = false;
+    {
+      const groqKey = userApiKey || process.env.GROQ_API_KEY;
+      if (groqKey && selectedProvider !== "groq") {
+        const groqClient = createOpenAI({ apiKey: groqKey, baseURL: "https://api.groq.com/openai/v1" });
+        for (const candidate of ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]) {
+          try {
+            ({ object } = await runReviewGeneration(groqClient(candidate)));
+            reviewerProvider = "groq";
+            reviewerModel = candidate;
+            chainRecovered = true;
+            logger.info("Free-provider failover succeeded", {
+              owner, repo, prNumber, provider: "groq", model: candidate, originalProvider: selectedProvider,
+            });
+            break;
+          } catch (chainErr) {
+            logger.warn("Groq free-chain candidate failed", {
+              owner, repo, prNumber, candidate,
+              error: chainErr instanceof Error ? chainErr.message : String(chainErr),
+            });
+          }
+        }
+      }
+    }
+
+    if (!chainRecovered) {
     const noEndpointError = /no endpoints found/i.test(errorMessage);
     const insufficientCreditsError = /requires more credits|fewer max_tokens|can only afford|max_tokens/i.test(errorMessage);
     const providerReturnedError = /provider returned error|ai_apicallerror/i.test(errorMessage);
@@ -1697,7 +1738,7 @@ Provide a structured review with specific issues, suggestions, and an overall sc
         })
         : null;
 
-      const groqFallbackModels = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
+      const groqFallbackModels = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"];
       let recovered = false;
 
       if (groqClient) {
@@ -1817,6 +1858,7 @@ Provide a structured review with specific issues, suggestions, and an overall sc
       }
     } else {
       object = buildOfflineReview(owner, repo, prNumber, errorMessage);
+    }
     }
     } catch (fallbackErr) {
       // All recovery attempts themselves threw - synthesize the guaranteed review
