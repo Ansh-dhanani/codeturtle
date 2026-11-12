@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
@@ -74,7 +73,6 @@ function formatDate(iso: string): string {
 }
 
 export function AdminDashboard({ data }: { data: AdminOverview }) {
-  const router = useRouter();
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("lastActivity");
   const [showUsers, setShowUsers] = useState(25);
@@ -95,7 +93,7 @@ export function AdminDashboard({ data }: { data: AdminOverview }) {
           toast.error(result.error);
         } else {
           toast.success(action === "grant" ? "Pro granted for 1 month" : "Comp Pro revoked");
-          router.refresh();
+          window.location.reload();
         }
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Action failed");
@@ -106,12 +104,13 @@ export function AdminDashboard({ data }: { data: AdminOverview }) {
   };
 
   const filteredUsers = useMemo(() => {
+    const allUsers = Array.isArray(data?.users) ? data.users : [];
     const q = query.trim().toLowerCase();
     const base = q
-      ? data.users.filter((user) =>
+      ? allUsers.filter((user) =>
           [user.name, user.email].join(" ").toLowerCase().includes(q),
         )
-      : [...data.users];
+      : [...allUsers];
 
     base.sort((a, b) => {
       switch (sort) {
