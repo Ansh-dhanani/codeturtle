@@ -1,0 +1,313 @@
+{
+  "generatedAt": "2026-11-12T09:19:37.188Z",
+  "prs": 12,
+  "knownDefects": 21,
+  "reportedFindings": 22,
+  "lineMatches": 5,
+  "keywordMatches": 2,
+  "recallLine": 0.238,
+  "recallKeyword": 0.333,
+  "precisionProxy": "unverifiable without human grading of each finding - see per-PR output",
+  "entries": [
+    {
+      "pr": 28,
+      "elapsedSeconds": 75.2,
+      "score": 7,
+      "findings": [
+        {
+          "file": "utils.js",
+          "line": 38,
+          "title": "Bug: Incorrect rounding in `formatCurrency`",
+          "description": "The `formatCurrency` function is explicitly noted to have a bug where it rounds down instead of rounding to the nearest value. The current implementation uses `Math.floor`, which truncates the decimal part, leading to incorrect rounding behavior for financial amounts. The `toFixed(2)` method, when called on a number, already performs rounding to the nearest digit before converting to a string. Therefore, the intermediate `Math.floor` operation is both incorrect and unnecessary.",
+          "severity": "critical"
+        },
+        {
+          "file": "utils.test.js",
+          "title": "Missing tests for `formatCurrency`",
+          "description": "The `utils.test.js` file is missing tests for the `formatCurrency` function. Given that this function was explicitly identified as having a bug in the PR description, it's crucial to have test cases that cover its correct behavior, including various rounding scenarios (rounding up, rounding down, and exact values). Without tests, regressions for this function are more likely to occur.",
+          "severity": "warning"
+        }
+      ],
+      "matched": [
+        "utils-floor",
+        "utils-no-test"
+      ],
+      "known": [
+        "utils-floor",
+        "utils-no-test"
+      ]
+    },
+    {
+      "pr": 29,
+      "elapsedSeconds": 119.7,
+      "score": 5,
+      "findings": [
+        {
+          "file": "cart.js",
+          "line": 4,
+          "title": "Mutable Module-Level State",
+          "description": "The `total` variable is a mutable module-level state. This means its value can be changed by multiple calls to `addToCart` throughout the application's lifecycle, leading to non-deterministic behavior, difficulty in testing (state needs manual resetting), and potential bugs in a concurrent or long-running process. It violates the principle of referential transparency for `addToCart`.",
+          "severity": "critical"
+        },
+        {
+          "file": "cart.js",
+          "line": 24,
+          "title": "Hardcoded Secret",
+          "description": "A hardcoded API key (`sk_test_1234567890abcdef`) is directly present in the source code. This is a severe security vulnerability as it exposes sensitive credentials to anyone with access to the codebase (e.g., version control, build artifacts, client-side bundles). Secrets should never be committed to source control.",
+          "severity": "critical"
+        },
+        {
+          "file": "cart.js",
+          "line": 28,
+          "title": "Loose Equality and Unhandled Cases in `calculateDiscount`",
+          "description": "The `calculateDiscount` function uses loose equality (`==`) which can lead to unexpected type coercion. It also lacks a default return or error for `code` values that are neither 'SAVE10' nor 'SAVE20', implicitly returning `undefined` in such cases. This can make its behavior unpredictable.",
+          "severity": "warning"
+        },
+        {
+          "file": "cart.test.js",
+          "line": 1,
+          "title": "Suboptimal Testing Approach",
+          "description": "The `cart.test.js` file uses `console.assert` for testing. While functional for simple checks, this is not a robust or standard practice for unit testing in JavaScript. Modern testing frameworks like Jest, Mocha, or Vitest provide richer assertion libraries, better reporting, test isolation, and setup/teardown capabilities, which are crucial for maintaining test suites as a project grows.",
+          "severity": "warning"
+        },
+        {
+          "file": "cart.js",
+          "line": 43,
+          "title": "Unused Function (Dead Code)",
+          "description": "The `helperUnused` function is defined but not exported or called anywhere within the provided files. This indicates dead code that should either be removed or integrated if it serves a purpose.",
+          "severity": "info"
+        }
+      ],
+      "matched": [
+        "cart-global-total",
+        "cart-secret",
+        "cart-loose-eq"
+      ],
+      "known": [
+        "cart-secret",
+        "cart-global-total",
+        "cart-loose-eq"
+      ]
+    },
+    {
+      "pr": 30,
+      "elapsedSeconds": 78.6,
+      "score": 3,
+      "findings": [
+        {
+          "file": "allbad.js",
+          "line": 2,
+          "title": "Mutable Module-Level State",
+          "description": "The variables `x`, `y`, and `z` are declared at the module level. `x` is modified by multiple functions (`a`, `c`, `d`), leading to mutable global state. This makes code harder to reason about, test, and can introduce unexpected side effects, especially in a server environment where module state might persist across requests.",
+          "severity": "critical"
+        },
+        {
+          "file": "allbad.js",
+          "line": 6,
+          "title": "Blocking CPU-Intensive Loop",
+          "description": "The `b` function contains a synchronous loop that iterates 1 billion times. This is a CPU-intensive operation that will block the Node.js event loop for an extended period, making the server unresponsive during its execution. This is a severe performance bottleneck.",
+          "severity": "critical"
+        },
+        {
+          "file": "allbad.js",
+          "line": 9,
+          "title": "Security Vulnerability: Use of `eval()`",
+          "description": "The `d` function uses `eval()`, which allows arbitrary code execution. This is a critical security vulnerability if any part of the evaluated string can be influenced by user input, leading to injection attacks. `eval()` also makes code harder to debug and optimize.",
+          "severity": "critical"
+        },
+        {
+          "file": "allbad.js",
+          "line": 40,
+          "title": "Security Vulnerability: Hardcoded Password",
+          "description": "The `password` variable is hardcoded directly in the source code. This is a severe security vulnerability as it exposes sensitive information that should never be stored in plaintext in the codebase, especially in a version-controlled repository.",
+          "severity": "critical"
+        },
+        {
+          "file": "allbad.js",
+          "line": 41,
+          "title": "Security Vulnerability: Insecure Password Comparison",
+          "description": "The `g` function compares a `token` directly with a hardcoded `password` using loose equality (`==`). This is insecure for several reasons: it's vulnerable to timing attacks, it doesn't use cryptographic hashing for password storage and comparison, and loose equality can lead to unexpected type coercion issues.",
+          "severity": "critical"
+        }
+      ],
+      "matched": [],
+      "known": [
+        "messy-eval",
+        "messy-password",
+        "messy-mutable-globals"
+      ]
+    },
+    {
+      "pr": 31,
+      "elapsedSeconds": 105.5,
+      "score": 5,
+      "findings": [
+        {
+          "file": "utils.js",
+          "line": 40,
+          "title": "Bug: Incorrect rounding in formatCurrency",
+          "description": "The `formatCurrency` function incorrectly uses `Math.floor` to round the amount, which always rounds down. According to standard financial practices and the problem description (which explicitly mentions this bug), it should round to the nearest cent, typically achieved with `Math.round`.",
+          "severity": "critical"
+        },
+        {
+          "file": "utils.test.js",
+          "line": 1,
+          "title": "Missing tests for formatCurrency",
+          "description": "There are no tests for the `formatCurrency` function in `utils.test.js`. This is a critical omission, especially considering there's a known bug in its implementation. Without tests, regressions are highly likely, and the function's behavior is not adequately verified.",
+          "severity": "critical"
+        }
+      ],
+      "matched": [
+        "utils-floor"
+      ],
+      "known": [
+        "utils-floor"
+      ]
+    },
+    {
+      "pr": 48,
+      "elapsedSeconds": 108.4,
+      "score": 2,
+      "findings": [
+        {
+          "file": "allbad.js",
+          "line": 10,
+          "title": "Use of `eval` function",
+          "description": "The `eval` function executes arbitrary JavaScript code. If the input to `eval` were to come from an untrusted source, it could lead to severe code injection vulnerabilities, allowing attackers to execute malicious code on the server or client.",
+          "severity": "critical"
+        },
+        {
+          "file": "allbad.js",
+          "line": 39,
+          "title": "Hardcoded password and plaintext comparison",
+          "description": "The `password` variable is hardcoded directly in the source code. This is an extreme security vulnerability as it can be easily discovered by anyone with access to the codebase (e.g., in a version control system, build artifacts). Furthermore, `g` compares the token in plaintext, which is also insecure. Passwords should never be stored in plaintext or hardcoded. Authentication tokens should be securely hashed and compared using cryptographic functions.",
+          "severity": "critical"
+        },
+        {
+          "file": "cart.js",
+          "line": 24,
+          "title": "Hardcoded API Key",
+          "description": "The `API_KEY` is hardcoded directly in the source code. This is a severe security risk, as anyone with access to the code (e.g., in a public repository, build logs) can obtain and misuse this key. Secrets should never be committed to source control.",
+          "severity": "critical"
+        },
+        {
+          "file": "allbad.js",
+          "line": 2,
+          "title": "Mutable Global State",
+          "description": "The functions `a`, `c`, and `d` directly modify the global variable `x`. This introduces side effects and makes the code difficult to reason about, test, and debug. The value of `x` can change unexpectedly depending on the call order of these functions.",
+          "severity": "warning"
+        },
+        {
+          "file": "allbad.js",
+          "line": 5,
+          "title": "Blocking Busy-Loop",
+          "description": "The function `b` contains a blocking busy-loop that iterates 1 billion times. This will consume significant CPU resources and block the Node.js event loop for an extended period, making the application unresponsive during its execution. This is a severe performance bottleneck and should be avoided.",
+          "severity": "warning"
+        }
+      ],
+      "matched": [],
+      "known": [
+        "messy-eval",
+        "messy-password"
+      ]
+    },
+    {
+      "pr": 52,
+      "elapsedSeconds": 66.3,
+      "score": 3,
+      "findings": [
+        {
+          "file": "src/payments/payment02.ts",
+          "line": 15,
+          "title": "Severe Security Vulnerability: User Token Leak",
+          "description": "The `charge_00_debug` function directly exposes a user's authentication token. This is a severe security vulnerability that could lead to unauthorized access, privilege escalation, and data breaches if this code is ever deployed to any environment, even 'debug' or 'staging' environments. The inline `TODO` comment acknowledges it's for debug, but such a function should never exist in a codebase, even temporarily, without extremely robust security measures (e.g., only callable by specific roles in very specific, audited environments, or preferably, not at all).",
+          "severity": "critical"
+        }
+      ],
+      "matched": [],
+      "known": [
+        "token-leak"
+      ]
+    },
+    {
+      "pr": 54,
+      "elapsedSeconds": 48.3,
+      "score": 5,
+      "findings": [
+        {
+          "file": "utils.js",
+          "line": 42,
+          "title": "Bug: Incorrect rounding in formatCurrency",
+          "description": "The `formatCurrency` function incorrectly rounds down the amount using `Math.floor` instead of rounding to the nearest value, as is standard for currency formatting. This is explicitly noted as a bug in the PR description but remains unfixed.",
+          "severity": "critical"
+        },
+        {
+          "file": "utils.test.js",
+          "line": 7,
+          "title": "Missing test coverage for formatCurrency",
+          "description": "The `formatCurrency` function, which contains a known bug, is not covered by any tests in `utils.test.js`. This is a critical omission, as tests are essential to prevent regressions and ensure correct behavior, especially for functions with known issues.",
+          "severity": "critical"
+        }
+      ],
+      "matched": [
+        "utils-floor"
+      ],
+      "known": [
+        "utils-floor"
+      ]
+    },
+    {
+      "pr": 56,
+      "elapsedSeconds": 69.7,
+      "score": 0,
+      "findings": [],
+      "matched": [],
+      "known": [
+        "messy-eval",
+        "messy-password",
+        "messy-mutable-globals"
+      ]
+    },
+    {
+      "pr": 55,
+      "elapsedSeconds": 52.8,
+      "score": 0,
+      "findings": [],
+      "matched": [],
+      "known": [
+        "cart-secret",
+        "cart-global-total"
+      ]
+    },
+    {
+      "pr": 57,
+      "elapsedSeconds": 53.2,
+      "score": 0,
+      "findings": [],
+      "matched": [],
+      "known": [
+        "token-leak"
+      ]
+    },
+    {
+      "pr": 66,
+      "elapsedSeconds": 92.6,
+      "score": 0,
+      "findings": [],
+      "matched": [],
+      "known": [
+        "utils-floor"
+      ]
+    },
+    {
+      "pr": 69,
+      "elapsedSeconds": 105,
+      "score": 0,
+      "findings": [],
+      "matched": [],
+      "known": [
+        "token-leak"
+      ]
+    }
+  ]
+}

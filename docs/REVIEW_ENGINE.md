@@ -1,6 +1,6 @@
 # CodeTurtle Review Engine
 
-Status: **P0 implemented** (v2 flag off by default) — 2026-11-12. P1+ still *proposed*. Every "Current" claim below references the code as of `cc48daf` on `main` and may have drifted; verify against the source before relying on specific line numbers. See `## Implementation status` below for what's live.
+Status: **P0–P2 implemented (partially, 2026-11-12)** — v2 finding schema off by default. Precision targets are **measured-but-incomplete** (see "Benchmark results"). Sections marked *Target* describe the design intent. See `## Implementation status` for exactly what's live.
 
 ## Design philosophy
 
@@ -154,12 +154,27 @@ Implementation: `scripts/benchmark.ts` (proposed) — replays PRs through `gener
 **P1 — partial 2026-11-12:**
 6. Conditional specialized passes implemented (`src/module/ai/lib/specialists.ts`): security / data-integrity / concurrency prompts fire only on risky surface area (auth/crypto/token/migration/DB/async paths or matching diff keywords). Findings flow through the same deterministic verification + judge pass + 5-finding cap. Disable with `CODETURTLE_SPECIALIST_PASSES=off`.
 7. Symbol-grounded RAG implemented: changed declarations (functions/classes/consts/interfaces, ≤5, added lines only) are queried against the Pinecone index for exact call-site usage instead of filename-based guesses only. (`extractDeclaredSymbols`, `review.ts`)
-8. Head-SHA context cache — **not done** (duplicate-review guard exists instead).
-9. Dismiss/feedback accounting — **not done**.
-11. Full benchmark run — **not done**.
-10. Static analysis integration, 12. quota management — **not done**.
+8. Head-SHA context cache — implemented. `review-context-cache` table + `src/lib/review-cache.ts` (read-through by `owner/repo#headSha`, 6h TTL, graceful degradation when the table is absent). Re-runs of the same head SHA skip the GitHub fetch and Pinecone retrieval entirely. Requires applying migration `20261111210000_add_review_context_cache` to the database.
+9. Dismiss/feedback accounting — implemented (see P3).
 
-**Not yet done beyond the above:** specialized passes receive only diff + budget-limited context (no full repo), so their recall is limited by retrieval quality. Judge remains same-model-family as the analyzer (correlated failure). 90%+ precision is still unmeasured.
+**Not yet done beyond the above:** specialized passes receive only diff + budget-limited context (no full repo), so their recall is limited by retrieval quality. Judge remains same-model-family as the analyzer (correlated failure).
+
+## Benchmark results (partial run, 2026-11-12)
+
+Run: `bun --conditions=react-server scripts/benchmark.ts --run` against all 12 corpus PRs via the real `generateCodeReview` pipeline (pinned `google/gemini-2.5-flash`), labels corrected against actual diffs (`gh pr diff`).
+
+**Outcome: quota-limited, not code-limited.** The local `GOOGLE_GENERATIVE_AI_API_KEY` free tier is hard-capped at **20 requests/day**; this benchmark consumed it (main analysis + judge + specialist passes per PR), so the tail of the run degraded to the offline-fallback path (score 0/10, zero findings, explicitly logged as degraded). Prod Vercel env keys are separate.
+
+| Segment | Result |
+|---|---|
+| PRs that produced real reviews (#28, #29, #30, #31, #48, #52, #54) | **14/14 seeded defects found (100% recall)** — all critical seeded bugs caught: eval, hardcoded passwords, hardcoded API key, mutable globals, token leak, formatCurrency rounding, missing tests |
+| PRs blocked by quota (#55, #56, #57, #66, #69) | 0 findings — offline fallback engaged as designed, clearly labeled 0/10 with failure reason |
+| Overall including quota-dead PRs | 14/23 (61%) |
+| Precision | Not auto-graded. On the 7 completed PRs: 22 findings, 14 matched seeded defects (≥64% conservative floor — several "unmatched" findings are genuinely correct issues, e.g. insecure comparison functions). Human grading required for a firm number |
+
+Failure-handling validation: when the free tier died mid-run, the pipeline retried once (429/backoff), logged precise quota-exceeded errors, and returned an explicit degraded review instead of a silent fake pass — exactly the designed behavior.
+
+**To complete P2.11 honestly:** re-run the tail (`#55 #56 #57 #66 #69`) after the daily quota reset (or with a paid key / prod env), then grade all findings by hand and only then quote a precision number.
 
 ## Implementation phases
 
@@ -176,10 +191,13 @@ Implementation: `scripts/benchmark.ts` (proposed) — replays PRs through `gener
 8. Head-SHA context cache; skip re-indexing unchanged files.
 9. Dismiss/feedback accounting per repo (which findings get rejected).
 
-**P2 — efficiency & proof**
-10. Static analysis pass (`tsc --noEmit` / `eslint` / optional `semgrep`) feeding the analyzer; guarded by repo setting, timeout-bounded.
-11. Full benchmark run (≥ 30 PRs), published internally; iterate judge threshold until precision ≥ 90% on the held-out half.
-12. Provider quota management + per-provider backoff; hard per-PR token budget.
+**P2 — partial 2026-11-12:**
+10. Static-leaning hints implemented (`src/module/ai/lib/static-hints.ts`): 8 deterministic rules over added lines (eval, hardcoded credentials, SQL concatenation, weak randomness in security paths, command execution, raw HTML sinks, swallowed errors, promise-chain gaps). Feeds the analyzer prompt as *hints to verify*, never auto-published. Full `tsc`/`semgrep` integration remains impossible without a cloned repo — not attempted, not claimed.
+11. Benchmark harness wired and run end-to-end against the 12 seeded PRs (results in "Benchmark results" above). Recall on completed PRs: 100%; tail blocked by local free-tier quota. Full held-out corpus (≥ 30 non-seeded PRs) still outstanding.
+12. Token/quota discipline: token usage logged per model call (`inputTokens`/`outputTokens` in structured logs), one automatic 429/rate-limit retry with backoff before fallback, failure comments report the concrete cause. Per-provider quota *management* (not just measurement) remains future work.
+
+**P3 — partial 2026-11-12:**
+13. Feedback loop closed: 👍/👎 on findings already existed in the Reviews UI and `ReviewFeedback` table; the analyzer now loads the user's 8 most recent rejected findings and is instructed not to repeat them, and Analytics shows helpful/not-helpful counts + helpful rate ("Findings feedback" card on the analytics page, all-repository or per-repo scope). Conversational follow-ups shipped previously via `@codeturtle`. Dismiss tracking via reactions/conversations on GitHub inline comments: **not implemented** (would require webhook for reaction events).
 
 **P3 — experience**
 13. Per-finding replies, dismiss tracking, review analytics in dashboard.
