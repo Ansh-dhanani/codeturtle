@@ -11,6 +11,7 @@ import {
 	UserIcon,
 	BookOpenIcon,
 	LifeBuoyIcon,
+	ShieldCheckIcon,
 } from "lucide-react";
 
 type SidebarNavItem = {
@@ -78,6 +79,12 @@ export const navGroups: SidebarNavGroup[] = [
 		],
 	},
 ];
+
+export const adminNavItem: SidebarNavItem = {
+	title: "Admin",
+	url: "/admin",
+	icon: <ShieldCheckIcon />,
+};
 
 export const footerNavLinks: SidebarNavItem[] = [
 	{

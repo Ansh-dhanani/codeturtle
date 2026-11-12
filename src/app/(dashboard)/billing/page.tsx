@@ -119,7 +119,7 @@ export default function BillingPage() {
                 <span className="text-sm">Repositories</span>
               </div>
               <span className="text-sm font-medium">
-                {PLANS[currentPlan as keyof typeof PLANS]?.repoLimit === -1
+                {data?.specialLimitless || PLANS[currentPlan as keyof typeof PLANS]?.repoLimit === -1
                   ? "Unlimited"
                   : `${PLANS[currentPlan as keyof typeof PLANS]?.repoLimit || 5} max`}
               </span>

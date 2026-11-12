@@ -67,6 +67,36 @@ export async function getOrCreateSubscription(userId: string) {
     where: { userId },
   });
 
+  // Lazy expiry: comp'd Pro grants (no Polar subscription id) are time-boxed.
+  // Real Polar subscriptions are untouched - their plan/status comes from webhooks.
+  if (
+    subscription &&
+    subscription.plan !== "free" &&
+    !subscription.polarSubscriptionId &&
+    subscription.cancelAtPeriodEnd &&
+    subscription.currentPeriodEnd &&
+    subscription.currentPeriodEnd.getTime() <= Date.now()
+  ) {
+    try {
+      subscription = await prisma.subscription.update({
+        where: { id: subscription.id },
+        data: {
+          plan: "free",
+          status: "active",
+          usageLimit: PLANS.free.reviewLimit,
+          cancelAtPeriodEnd: false,
+          currentPeriodEnd: null,
+        },
+      });
+      logger.info("Comp Pro grant expired; user reverted to free", { userId });
+    } catch (err) {
+      logger.warn("Failed to expire comp Pro grant", {
+        userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   if (!subscription) {
     subscription = await prisma.subscription.create({
       data: {
@@ -209,6 +239,7 @@ export async function getSubscriptionStatus(userId: string): Promise<Subscriptio
     planName: specialLimitless ? "Special Unlimited" : plan.name,
     status: subscription.status,
     price: plan.price,
+    specialLimitless,
     features: specialLimitless
       ? [...plan.features, "Unlimited reviews", "Unlimited repositories", "Unlimited per-PR reviews"]
       : plan.features,

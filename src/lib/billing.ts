@@ -44,6 +44,8 @@ export type SubscriptionStatus = {
   status: string;
   price: number;
   features: readonly string[];
+  /** True for env-allowlisted special-limitless users (unlimited everything). */
+  specialLimitless?: boolean;
   usage: { allowed: boolean; limit: number; used: number; remaining: number };
   perPrUsage: { limit: number; used: number; remaining: number };
   currentPeriodEnd: Date | null;

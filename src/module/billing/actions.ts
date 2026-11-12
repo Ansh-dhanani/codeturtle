@@ -23,13 +23,13 @@ export async function startCheckout(plan: string): Promise<ActionResult<{ url: s
     const polar = getPolarClient();
     if (!polar) {
       console.error("[billing] POLAR_ACCESS_TOKEN is not set; checkout unavailable");
-      return { ok: false, error: "Billing isn't configured yet - contact dhananiansh01@gmail.com." };
+      return { ok: false, error: "Upgrades are temporarily disabled. If you want Pro, email dhananiansh01@gmail.com and we'll enable it for you." };
     }
 
     const productId = getPolarProductId(normalized);
     if (!productId) {
       console.error(`[billing] POLAR_PRODUCT_${normalized.toUpperCase()}_ID is not set`);
-      return { ok: false, error: "This plan isn't available yet - contact dhananiansh01@gmail.com." };
+      return { ok: false, error: "Upgrades are temporarily disabled. If you want Pro, email dhananiansh01@gmail.com and we'll enable it for you." };
     }
 
     const baseUrl = getAppBaseUrl();
@@ -67,7 +67,7 @@ export async function openCustomerPortal(): Promise<ActionResult<{ url: string }
     const polar = getPolarClient();
     if (!polar) {
       console.error("[billing] POLAR_ACCESS_TOKEN is not set; customer portal unavailable");
-      return { ok: false, error: "Billing isn't configured yet - contact dhananiansh01@gmail.com." };
+      return { ok: false, error: "Manage-plan is temporarily unavailable - email dhananiansh01@gmail.com and we'll help." };
     }
 
     const customerSession = await polar.customerSessions.create({

@@ -219,7 +219,7 @@ export function RepositoryManager() {
   });
 
   const connectedCount = allRepos.filter((repo) => repo.isConnected).length;
-  const repoLimit = repoLimitFor(subscription?.plan);
+  const repoLimit = subscription?.specialLimitless ? -1 : repoLimitFor(subscription?.plan);
   const atRepoLimit = repoLimit !== -1 && connectedCount >= repoLimit;
 
   // Auto-fetch more GitHub pages as the user scrolls
@@ -603,7 +603,7 @@ function RepoSheet({
   const key = repo.connectedRepositoryId || String(repo.id);
   const { data: AI_PROVIDERS = [], forceRefresh } = useAvailableProviders();
   const { data: subscription } = useSubscription();
-  const customRulesLocked = !canUseCustomRulesFor(subscription?.plan);
+  const customRulesLocked = !(subscription?.specialLimitless ?? false) && !canUseCustomRulesFor(subscription?.plan);
   const base: RepoDraft = {
     reviewModes: normalizeRepoReviewModes(repo.reviewModes || repo.reviewStyle),
     memesEnabled: repo.memesEnabled ?? true,

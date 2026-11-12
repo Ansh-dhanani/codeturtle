@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import {
 	Sidebar,
 	SidebarContent,
@@ -10,12 +13,34 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import { footerNavLinks, navGroups } from "@/components/app-shared";
+import { footerNavLinks, navGroups, adminNavItem } from "@/components/app-shared";
 import { NavUser } from "@/components/nav-user";
 import { BrandMark } from "@/components/brand-mark";
 
 
 export function AppSidebar({ pathname }: { pathname?: string }) {
+	const [isAdmin, setIsAdmin] = useState(false);
+
+	useEffect(() => {
+		let cancelled = false;
+		import("@/module/admin/actions").then(({ isCurrentUserAdmin }) =>
+			isCurrentUserAdmin().then((result) => {
+				if (!cancelled) setIsAdmin(result);
+			}),
+		);
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	const groups = isAdmin
+		? navGroups.map((group, index) =>
+				index === navGroups.length - 1
+					? { ...group, items: [...group.items, adminNavItem] }
+					: group,
+			)
+		: navGroups;
+
 	return (
 		<Sidebar
 			className="static min-h-full *:data-[slot=sidebar-inner]:bg-background"
@@ -34,7 +59,7 @@ export function AppSidebar({ pathname }: { pathname?: string }) {
 				</Link>
 			</SidebarHeader>
 			<SidebarContent>
-				{navGroups.map((group) => (
+				{groups.map((group) => (
 					<SidebarGroup key={group.label}>
 						{group.label ? (
 							<SidebarGroupLabel className="font-normal">
