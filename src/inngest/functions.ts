@@ -574,8 +574,10 @@ export const processPREvent = inngest.createFunction(
         retries: 3,
         // Supersede stale runs for the same PR (force-push storms must not fan
         // out multiple full reviews) and serialize the survivors.
+        // "skip" drops the new arrival rather than cancelling the pipeline that
+        // is already working, which avoids leaving stale progress comments mid-flight.
         concurrency: [{ key: "event.data.owner + '/' + event.data.repo + '#' + string(event.data.prNumber)", limit: 1 }],
-        singleton: { key: "event.data.owner + '/' + event.data.repo + '#' + string(event.data.prNumber)", mode: "cancel" },
+        singleton: { key: "event.data.owner + '/' + event.data.repo + '#' + string(event.data.prNumber)", mode: "skip" },
         triggers: [{ event: "pull_request.opened" }],
     },
 
@@ -591,6 +593,8 @@ export const processPREvent = inngest.createFunction(
         let progressCommentId: number | null = null;
         let processingReviewId: string | null = null;
         let checkRunId: number | null = null;
+        let effectiveHeadSha: string | undefined;
+        let progressGifUrl: string | null = null;
         let behaviorSettings: RepoBehaviorSettings = DEFAULT_REPO_BEHAVIOR_SETTINGS;
         const reviewRunId = `review_${owner}_${repo}_${prNumber}_${Date.now().toString(36).slice(-4)}`;
         const humorDedupeKey = `review:${owner}/${repo}#${prNumber}`;
@@ -743,7 +747,7 @@ export const processPREvent = inngest.createFunction(
                 return { skipped: true, reason: "too_many_files", changedFiles: diffGuard.changedFiles };
             }
 
-            let effectiveHeadSha = headSha || commitPolicy.headSha || undefined;
+            effectiveHeadSha = headSha || commitPolicy.headSha || undefined;
             if (!effectiveHeadSha) {
                 effectiveHeadSha = await step.run("Load PR head SHA", async () => {
                     const octokit = await getPreferredOctokit(owner, repo, userId);
@@ -882,6 +886,21 @@ export const processPREvent = inngest.createFunction(
                 }
             });
 
+            // Unique index on (userId, owner, repo, prNumber, sha) only lets ONE run
+            // proceed. P2002 inside the previous step means this PR+SHA was already
+            // claimed by a concurrent Inngest run - bail before touching GitHub so
+            // no duplicate progress comment / check run / review is produced.
+            if (processingReviewId === null) {
+                l.info("PR+SHA already claimed by another review run; skipping this one", {
+                    owner,
+                    repo,
+                    prNumber,
+                    userId,
+                    headSha: effectiveHeadSha,
+                });
+                return { skipped: true, reason: "duplicate_processing_lock", headSha: effectiveHeadSha };
+            }
+
             // Create a GitHub Check Run so the review appears as a required status
             // on the PR head commit. INNGEST only blocks the won-process replay, not
             // the App identity - and the Checks API gives us the green/red/yellow icon.
@@ -917,7 +936,7 @@ export const processPREvent = inngest.createFunction(
                 }
             });
 
-            const progressGifUrl = await step.run("Post review in progress comment", async () => {
+            progressGifUrl = await step.run("Post review in progress comment", async () => {
                 const octokit = await getPreferredOctokit(owner, repo, userId);
 
                 // Reuse an existing progress comment if one exists on this PR so
@@ -1564,6 +1583,32 @@ export const processPREvent = inngest.createFunction(
                     }
                 } catch (commentErr) {
                     l.error("Failed to post failure comment", commentErr as Error, { owner, repo, prNumber, userId });
+                }
+            });
+
+            // Ensure the progress marker lands in a terminal state on every error path too,
+            // so it never stays "In progress" forever on a failed/aborted run.
+            await step.run("Mark progress comment failed", async () => {
+                if (!progressCommentId) return;
+                try {
+                    await updateProgressComment({
+                        owner,
+                        repo,
+                        prNumber,
+                        userId,
+                        commentId: progressCommentId,
+                        status: `Status: Review failed - ${errorMessage.slice(0, 120)}`,
+                        behaviorSettings,
+                        humorDedupeKey,
+                        progressGifUrl,
+                        runId: reviewRunId,
+                        headSha: headSha || effectiveHeadSha,
+                    });
+                } catch (err) {
+                    l.warn("Failed to update progress comment on failure path", {
+                        owner, repo, prNumber,
+                        error: err instanceof Error ? err.message : String(err),
+                    });
                 }
             });
 
