@@ -10,7 +10,7 @@ import { withTimeout } from "@/lib/with-timeout";
 import { Prisma } from "@prisma/client";
 import { Octokit } from "octokit";
 import { checkPerPRReviewLimit, checkUsageLimit, incrementUsage, isSpecialLimitlessUser } from "@/lib/billing.server";
-import { getHumorLines, getSuccessHumorScenario } from "@/lib/review-humor";
+import { getHumorLines } from "@/lib/review-humor";
 import { deriveReviewDecision, isReviewUnavailableError } from "@/module/ai/lib/review";
 
 type HumorScenario =
@@ -205,35 +205,35 @@ async function buildProgressBody(
         : `${appBase}/repositories`;
 
     const contextRows = [
-        context?.owner && context?.repo ? `**Repository** · \`${context.owner}/${context.repo}\`` : null,
+        context?.owner && context?.repo ? `**Repository** Â· \`${context.owner}/${context.repo}\`` : null,
         context?.baseBranch && context?.headBranch
-            ? `**Branch** · \`${context.headBranch}\` → \`${context.baseBranch}\``
+            ? `**Branch** Â· \`${context.headBranch}\` â†’ \`${context.baseBranch}\``
             : null,
-        context?.headSha ? `**Commit** · \`${context.headSha.slice(0, 7)}\`` : null,
-        context?.prNumber ? `**PR** · #${context.prNumber}` : null,
-        `**Review profile** · ${reviewProfile}`,
-        "**Layers** · diff compression · Pinecone RAG · judge pass",
-        settingsUrl ? `**Settings** · [Configure this repository](${settingsUrl})` : null,
+        context?.headSha ? `**Commit** Â· \`${context.headSha.slice(0, 7)}\`` : null,
+        context?.prNumber ? `**PR** Â· #${context.prNumber}` : null,
+        `**Review profile** Â· ${reviewProfile}`,
+        "**Layers** Â· diff compression Â· Pinecone RAG Â· judge pass",
+        settingsUrl ? `**Settings** Â· [Configure this repository](${settingsUrl})` : null,
     ].filter(Boolean);
 
     const runConfig = [
         "<details>",
-        '<summary><strong>⚙️ Run configuration</strong></summary>',
+        '<summary><strong>âš™ï¸ Run configuration</strong></summary>',
         "",
         ...contextRows.map((row) => `- ${row}`),
-        `- **Run ID** · \`${runId}\``,
+        `- **Run ID** Â· \`${runId}\``,
         "",
         "</details>",
     ].join("\n");
 
     const lines = [
         "<!-- codeturtle-review-progress -->",
-        "## 🐢 CodeTurtle is reviewing this PR",
+        "## ðŸ¢ CodeTurtle is reviewing this PR",
         "",
         "<details open>",
-        "<summary><strong>🟡 In progress</strong></summary>",
+        "<summary><strong>ðŸŸ¡ In progress</strong></summary>",
         "",
-        `**Status** · ${status.replace(/^Status:\s*/i, "")}`,
+        `**Status** Â· ${status.replace(/^Status:\s*/i, "")}`,
         "",
         gifUrl ? `![meme-in-progress](${gifUrl})\n` : "",
         "</details>",
@@ -242,7 +242,7 @@ async function buildProgressBody(
         "",
         "---",
         "",
-        "*🧠 CodeTurtle runs a full-repo context pass - cloning, indexing, reading your diff, then judging what's actually worth flagging.*",
+        "*ðŸ§  CodeTurtle runs a full-repo context pass - cloning, indexing, reading your diff, then judging what's actually worth flagging.*",
     ];
 
     return { body: lines.filter((l) => l !== undefined).join("\n"), gifUrl };
@@ -298,7 +298,7 @@ async function updateProgressComment(params: {
                 owner,
                 repo,
                 comment_id: commentId,
-                body: `<!-- codeturtle-review-progress -->\n## 🐢 CodeTurtle is reviewing this PR\n\n**Status** · ⚠️ Progress update failed: ${reason.slice(0, 200).replace(/\\n/g, " ")}\n\n<sub>Run · ${runId ?? ""}</sub>`,
+                body: `<!-- codeturtle-review-progress -->\n## ðŸ¢ CodeTurtle is reviewing this PR\n\n**Status** Â· âš ï¸ Progress update failed: ${reason.slice(0, 200).replace(/\\n/g, " ")}\n\n<sub>Run Â· ${runId ?? ""}</sub>`,
             });
         } catch (fallbackErr) {
             l.error("Fallback marker write also failed", fallbackErr as Error, { owner, repo, prNumber, commentId });
@@ -695,7 +695,7 @@ export const processPREvent = inngest.createFunction(
                         repo,
                         issue_number: prNumber,
                         body: [
-                            "## 🐢 CodeTurtle is waiting for your go-ahead",
+                            "## ðŸ¢ CodeTurtle is waiting for your go-ahead",
                             "",
                             `I can review this PR on: <code>${headShaShort ?? "latest commit"}</code>`,
                             "",
@@ -704,10 +704,10 @@ export const processPREvent = inngest.createFunction(
                             "<details open>",
                             "<summary><strong>Want CodeTurtle to review this PR?</strong></summary>",
                             "",
-                            "- [ ] ✅ **Yes, review this PR**",
-                            "- [ ] 🚫 **Not now - skip CodeTurtle on this PR**",
+                            "- [ ] âœ… **Yes, review this PR**",
+                            "- [ ] ðŸš« **Not now - skip CodeTurtle on this PR**",
                             "",
-                            "_To change this permanently, open Settings → this repository → Review mode → Auto._",
+                            "_To change this permanently, open Settings â†’ this repository â†’ Review mode â†’ Auto._",
                             "",
                             "</details>",
                         ].join("\n"),
@@ -732,7 +732,7 @@ export const processPREvent = inngest.createFunction(
                         prNumber,
                         marker: "codeturtle-quota-monthly",
                         body: [
-                            "## 🐢 CodeTurtle review limit reached",
+                            "## ðŸ¢ CodeTurtle review limit reached",
                             "",
                             `This workspace has used **${used}/${usage.limit}** reviews this month, so no review was run on this PR. No code-quality judgement was made.`,
                             "",
@@ -760,7 +760,7 @@ export const processPREvent = inngest.createFunction(
                         prNumber,
                         marker: "codeturtle-quota-per-pr",
                         body: [
-                            "## 🐢 Per-PR review limit reached",
+                            "## ðŸ¢ Per-PR review limit reached",
                             "",
                             `This PR has used **${used}/${perPrUsage.limit}** reviews allowed by your plan this month, so no further review was run. No code-quality judgement was made.`,
                             "",
@@ -824,7 +824,7 @@ export const processPREvent = inngest.createFunction(
                         prNumber,
                         marker: "codeturtle-limit-files",
                         body: [
-                            "## 🐢 PR too large for the Free plan",
+                            "## ðŸ¢ PR too large for the Free plan",
                             "",
                             `This PR changes **${diffGuard.changedFiles} files**, above the Free plan limit of ${MAX_FREE_PLAN_PR_FILES}. No review was run, so no code-quality judgement was made.`,
                             "",
@@ -864,7 +864,7 @@ export const processPREvent = inngest.createFunction(
                         prNumber,
                         marker: "codeturtle-limit-commits",
                         body: [
-                            "## 🐢 PR commit count above the Free plan limit",
+                            "## ðŸ¢ PR commit count above the Free plan limit",
                             "",
                             `This PR has **${commitPolicy.commits} commits**, above the Free plan limit of ${MAX_FREE_PLAN_PR_COMMITS}. No review was run, so no code-quality judgement was made.`,
                             "",
@@ -1008,21 +1008,24 @@ export const processPREvent = inngest.createFunction(
             // on the PR head commit. INNGEST only blocks the won-process replay, not
             // the App identity - and the Checks API gives us the green/red/yellow icon.
             checkRunId = await step.run("Create GitHub check run", async () => {
-                if (!effectiveHeadSha) return null;
+                const headSha = effectiveHeadSha;
+                if (!headSha) return null;
                 const octokit = await getPreferredOctokit(owner, repo, userId);
                 try {
-                    const { data: checkRun } = await octokit.rest.checks.create({
-                        owner,
-                        repo,
-                        name: "CodeTurtle Review",
-                        head_sha: effectiveHeadSha,
-                        status: "in_progress",
-                        started_at: new Date().toISOString(),
-                        output: {
-                            title: "🐢 CodeTurtle is reviewing",
-                            summary: "Reading diff and connected repository to produce a repository-aware review.",
-                        },
-                    });
+                    const { data: checkRun } = await withGithubRetry("create-check-run", () =>
+                        octokit.rest.checks.create({
+                            owner,
+                            repo,
+                            name: "CodeTurtle Review",
+                            head_sha: headSha,
+                            status: "in_progress",
+                            started_at: new Date().toISOString(),
+                            output: {
+                                title: "🐢 CodeTurtle is reviewing",
+                                summary: "Review in progress. This check completes when the review is published.",
+                            },
+                        }),
+                    );
                     if (processingReviewId) {
                         await prisma.codeReview.update({
                             where: { id: processingReviewId },
@@ -1171,8 +1174,8 @@ export const processPREvent = inngest.createFunction(
 
                         const hasDescription = issue.description && issue.description !== "No description provided.";
                         const body = [
-                            `**${issue.severity === "critical" ? "🛑" : issue.severity === "warning" ? "⚠️" : "ℹ️"} ${issue.title}**`,
-                            `**Severity:** ${issue.severity} · \`${issue.file}:L${issue.line}\``,
+                            `**${issue.severity === "critical" ? "ðŸ›‘" : issue.severity === "warning" ? "âš ï¸" : "â„¹ï¸"} ${issue.title}**`,
+                            `**Severity:** ${issue.severity} Â· \`${issue.file}:L${issue.line}\``,
                             "",
                             hasDescription ? issue.description : "",
                             hasDescription ? "" : (issue.suggestion && issue.suggestion !== "No suggestion provided." ? issue.suggestion : ""),
@@ -1206,48 +1209,33 @@ export const processPREvent = inngest.createFunction(
 
                 const decision = deriveReviewDecision(review);
                 const reviewEvent = decision.event;
-                const successScenario = getSuccessHumorScenario(review.overallScore, review.issues.length);
-                let successHumorLines: string[] = [];
-                try {
-                    successHumorLines = await getHumorLines(successScenario, {
-                        score: review.overallScore,
-                        issuesCount: review.issues.length,
-                    }, { enabled: behaviorSettings.memesEnabled, dedupeKey: humorDedupeKey });
-                } catch (humorErr) {
-                    l.warn("Success humor generation failed; posting review without humor", {
-                        humorDedupeKey,
-                        error: humorErr instanceof Error ? humorErr.message : "Unknown error",
-                    });
-                }
 
-                const sevEmoji: Record<string, string> = { critical: "🛑", warning: "⚠️", info: "ℹ️" };
+                const sevEmoji: Record<string, string> = { critical: "ðŸ›‘", warning: "âš ï¸", info: "â„¹ï¸" };
                 const sevLabel: Record<string, string> = { critical: "Critical", warning: "Warning", info: "Info" };
-                const sevColor: Record<string, string> = { critical: "critical", warning: "yellow/warning", info: "blue/info" };
 
                 const section = (title: string, content: string, open = false) =>
                     `<details${open ? " open" : ""}>\n<summary><strong>${title}</strong></summary>\n\n${content}\n\n</details>`;
 
                 const prBody = [
-                    "## 🐢 CodeTurtle Review",
+                    "## ðŸ¢ CodeTurtle Review",
                     "",
                     "| | |",
                     "| :- | :- |",
                     `| **Score** | **${review.overallScore}/10** |`,
                     `| **Reviewer** | \`${review.reviewerProvider}/${review.reviewerModel}\` |`,
-                    `| **Event** | ${reviewEvent === "REQUEST_CHANGES" ? "🔴 Changes Requested" : "🟢 Comment"} |`,
+                    `| **Event** | ${reviewEvent === "REQUEST_CHANGES" ? "ðŸ”´ Changes Requested" : "ðŸŸ¢ Comment"} |`,
                     `| **Issues** | ${review.issues.length} |`,
                     `| **Suggestions** | ${review.suggestions.length} |`,
                     `| **Positives** | ${review.positives.length} |`,
                     "",
-                    "### 📝 Summary",
+                    "### ðŸ“ Summary",
                     "",
                     review.summary,
-                    ...successHumorLines.map((line) => `\n${line}`),
                     "",
                     review.issues.length > 0
-                        ? section(`🚨 Issues (${review.issues.length})`,
+                        ? section(`ðŸš¨ Issues (${review.issues.length})`,
                             review.issues.map((i) => {
-                                const icon = sevEmoji[i.severity] || "ℹ️";
+                                const icon = sevEmoji[i.severity] || "â„¹ï¸";
                                 const label = sevLabel[i.severity] || "Info";
                                 const hasDescription = i.description && i.description !== "No description provided.";
                                 const suggestionBlock =
@@ -1264,7 +1252,7 @@ export const processPREvent = inngest.createFunction(
                                         ].join("\n")
                                         : "";
                                 return [
-                                    `#### ${icon} ${i.title} &nbsp;·&nbsp; \`${i.file}\`${i.line ? `:L${i.line}` : ""} &nbsp;·&nbsp; **${label}**`,
+                                    `#### ${icon} ${i.title} &nbsp;Â·&nbsp; \`${i.file}\`${i.line ? `:L${i.line}` : ""} &nbsp;Â·&nbsp; **${label}**`,
                                     "",
                                     hasDescription ? i.description : (i.suggestion && i.suggestion !== "No suggestion provided." ? i.suggestion : ""),
                                     "",
@@ -1275,9 +1263,9 @@ export const processPREvent = inngest.createFunction(
                         : "",
                     "",
                     review.suggestions.length > 0
-                        ? section(`💡 Suggestions (${review.suggestions.length})`,
+                        ? section(`ðŸ’¡ Suggestions (${review.suggestions.length})`,
                             review.suggestions.map((s) => [
-                                `#### ${s.title} &nbsp;·&nbsp; \`${s.file}\``,
+                                `#### ${s.title} &nbsp;Â·&nbsp; \`${s.file}\``,
                                 "",
                                 s.description,
                                 s.codeAfter ? [
@@ -1297,20 +1285,20 @@ export const processPREvent = inngest.createFunction(
                         : "",
                     "",
                     review.positives.length > 0
-                        ? section(`🌟 Positives (${review.positives.length})`,
+                        ? section(`ðŸŒŸ Positives (${review.positives.length})`,
                             [
                                 "",
-                                ...review.positives.map((p) => `- ✅ ${p}`),
+                                ...review.positives.map((p) => `- âœ… ${p}`),
                             ].join("\n"),
                         )
                         : "",
                     "",
                     review.architectureNotes
-                        ? section("🏗️ Architecture Notes", review.architectureNotes, true)
+                        ? section("ðŸ—ï¸ Architecture Notes", review.architectureNotes, true)
                         : "",
                     "",
                     review.diagram
-                        ? section("🗺️ Data Flow Diagram", [
+                        ? section("ðŸ—ºï¸ Data Flow Diagram", [
                             "```mermaid",
                             review.diagram.trim(),
                             "```",
@@ -1319,7 +1307,7 @@ export const processPREvent = inngest.createFunction(
                     "",
                     "---",
                     "",
-                    "💡 **Reply** with `@codeturtle` to ask follow-up questions, or ask me to generate a fix PR with actual applied changes.",
+                    "ðŸ’¡ **Reply** with `@codeturtle` to ask follow-up questions, or ask me to generate a fix PR with actual applied changes.",
                 ].filter(Boolean).join("\n");
 
                 if (reviewComments.length > 0) {
@@ -1459,15 +1447,15 @@ export const processPREvent = inngest.createFunction(
                     const octokit = await getPreferredOctokit(owner, repo, userId);
                     const noFindings = review.issues.length === 0 && review.suggestions.length === 0;
                     const body = [
-                        `## 🐢 CodeTurtle Review complete${noFindings ? " - empty review" : ""}`,
+                        `## ðŸ¢ CodeTurtle Review complete${noFindings ? " - empty review" : ""}`,
                         "",
-                        `**Score:** **${review.overallScore}/10** &nbsp;·&nbsp; **${review.issues.length}** issue${review.issues.length === 1 ? "" : "s"} &nbsp;·&nbsp; **${review.suggestions.length}** suggestion${review.suggestions.length === 1 ? "" : "s"}`,
+                        `**Score:** **${review.overallScore}/10** &nbsp;Â·&nbsp; **${review.issues.length}** issue${review.issues.length === 1 ? "" : "s"} &nbsp;Â·&nbsp; **${review.suggestions.length}** suggestion${review.suggestions.length === 1 ? "" : "s"}`,
                         "",
                         noFindings
                             ? "The configured model selected nothing worth flagging. This is plausible on clean code, but suspicious on obviously bad code - consider switching to a stronger model in the PR settings."
                             : "See the full review above for details.",
                         "",
-                        `<sub>Run · ${reviewRunId}</sub>`,
+                        `<sub>Run Â· ${reviewRunId}</sub>`,
                     ].join("\n");
                     await withGithubRetry("mark-progress-complete", () =>
                         octokit.rest.issues.updateComment({
@@ -1492,16 +1480,11 @@ export const processPREvent = inngest.createFunction(
                     const octokit = await getPreferredOctokit(owner, repo, userId);
                     const decision = deriveReviewDecision(review);
                     const hasCritical = decision.hasCritical;
-                    const conclusion: "success" | "neutral" | "action_required" | "failure" =
-                        review.issues.length === 0
-                            ? review.overallScore >= 7
-                                ? "success"
-                                : "neutral"
-                            : hasCritical
-                                ? "failure"
-                                : decision.event === "REQUEST_CHANGES"
-                                    ? "action_required"
-                                    : "success";
+                    // "failure" when the review requests changes so a required status
+                    // check can block merge until issues are addressed. "success" for a
+                    // completed, non-blocking review (including informational findings).
+                    const conclusion: "success" | "neutral" | "failure" =
+                        decision.event === "REQUEST_CHANGES" ? "failure" : "success";
 
                     const annotations: Array<{
                         path: string;
@@ -1536,19 +1519,21 @@ export const processPREvent = inngest.createFunction(
                         });
                     }
 
-                    await octokit.rest.checks.update({
-                        owner,
-                        repo,
-                        check_run_id: checkRunId,
-                        status: "completed",
-                        conclusion,
-                        completed_at: new Date().toISOString(),
-                        output: {
-                            title: `🐢 CodeTurtle review: ${review.overallScore}/10${hasCritical ? " · critical issues" : ""}`,
-                            summary: review.summary,
-                            annotations,
-                        },
-                    });
+                    await withGithubRetry("complete-check-run", () =>
+                        octokit.rest.checks.update({
+                            owner,
+                            repo,
+                            check_run_id: checkRunId as number,
+                            status: "completed",
+                            conclusion,
+                            completed_at: new Date().toISOString(),
+                            output: {
+                                title: `🐢 CodeTurtle review: ${review.overallScore}/10${hasCritical ? " · critical issues found" : ""}`,
+                                summary: review.summary.slice(0, 60000),
+                                annotations: annotations.length > 0 ? annotations : undefined,
+                            },
+                        }),
+                    );
                 } catch (err) {
                     l.warn("Failed to complete GitHub check run", {
                         owner, repo, prNumber,
@@ -1577,7 +1562,7 @@ export const processPREvent = inngest.createFunction(
                     await octokit.rest.checks.update({
                         owner,
                         repo,
-                        check_run_id: checkRunId,
+                        check_run_id: checkRunId as number,
                         status: "completed",
                         // Never fail a check because our provider was down: that
                         // would block merges on infrastructure, not code quality.
@@ -1686,12 +1671,12 @@ export const processPREvent = inngest.createFunction(
                     // Operational message, never a code-quality verdict. A failed
                     // review must not carry a score, an event, or an implied "LGTM".
                     const bodyWithoutHumor = [
-                        "## 🐢 CodeTurtle could not complete this review",
+                        "## ðŸ¢ CodeTurtle could not complete this review",
                         "",
                         "**No code-quality score was generated and no review decision was made.**",
                         "",
-                        `- **Provider / model** · \`${configuredProvider}/${configuredModel}\``,
-                        `- **Reason** · ${helpText}`,
+                        `- **Provider / model** Â· \`${configuredProvider}/${configuredModel}\``,
+                        `- **Reason** Â· ${helpText}`,
                         "",
                         `[Adjust repository settings](${settingsLink})`,
                         "",
@@ -1910,7 +1895,7 @@ export const processPRMention = inngest.createFunction(
                     scenario = "success-warning"; // curious
                 } else if (/problem|issue|bug|error|wrong|broken|bad|shit/i.test(lower)) {
                     scenario = "success-critical"; // empathetic
-                } else if (/haha|😂|🤣/i.test(lower)) {
+                } else if (/haha|ðŸ˜‚|ðŸ¤£/i.test(lower)) {
                     scenario = "success-clean"; // reacting to humor
                 } else if (/lol/i.test(lower)) {
                     scenario = "success-clean"; // laughing
@@ -1921,7 +1906,7 @@ export const processPRMention = inngest.createFunction(
                     undefined,
                     { enabled: true, dedupeKey: `meme-${Date.now()}` },
                 );
-                responseText = memeHumor.length > 0 ? memeHumor.join("\n").replace("\n\n", "\n") : "Here's a meme for you! 🐢";
+                responseText = memeHumor.length > 0 ? memeHumor.join("\n").replace("\n\n", "\n") : "Here's a meme for you! ðŸ¢";
             } else if (isDiagramCommand) {
                 const octokitForDiagram = await getPreferredOctokit(owner, repo, userId);
 
@@ -1968,7 +1953,7 @@ Rules:
 - Output ONLY raw Mermaid syntax - no code fences, no explanation, no prose
 - Use flowchart TD for component/module relationships or call graphs
 - Use sequenceDiagram for request/response flows, API chains, or async interactions
-- Max 12 nodes; labels ≤4 words using real names from the diff
+- Max 12 nodes; labels â‰¤4 words using real names from the diff
 - Only show components directly touched by the changed files
 - Every arrow must represent actual data or control flow`,
                     prompt: [
@@ -2050,7 +2035,7 @@ Rules:
                 let scenario: HumorScenario = "success-warning";
 
                 // user says love you / affectionate - map to success-clean for "celebrat" keyword
-                if (/love.*you|i love|love u|❤️|iloveyou/i.test(lower)) {
+                if (/love.*you|i love|love u|â¤ï¸|iloveyou/i.test(lower)) {
                     scenario = "success-clean"; // matches "celebrat" in useWhen
                 }
                 // user gives compliment / thanks / appreciation
@@ -2058,7 +2043,7 @@ Rules:
                     scenario = "success-clean"; // matches "celebrat" in useWhen
                 }
                 // user is sad / upset / disappointed
-                else if (/sad|upset|disappointed|😢|crying|feeling.*down|not good|feeling.*bad/i.test(lower)) {
+                else if (/sad|upset|disappointed|ðŸ˜¢|crying|feeling.*down|not good|feeling.*bad/i.test(lower)) {
                     scenario = "success-critical"; // matches "sad" in keywords
                 }
                 // user says hi / hello / hey
@@ -2066,11 +2051,11 @@ Rules:
                     scenario = "success-clean"; // matches "celebrat" for friendly greeting
                 }
                 // user is happy / excited / celebrating
-                else if (/happy|excited|woohoo|yay|celebrat|🎉|good news|awesome sauce/i.test(lower)) {
+                else if (/happy|excited|woohoo|yay|celebrat|ðŸŽ‰|good news|awesome sauce/i.test(lower)) {
                     scenario = "success-clean"; // matches "celebrat", "happy"
                 }
                 // user makes joke / is being funny
-                else if (/funny|haha|lol|lmao|😂|rofl|🤣|joke|meme|got me/i.test(lower)) {
+                else if (/funny|haha|lol|lmao|ðŸ˜‚|rofl|ðŸ¤£|joke|meme|got me/i.test(lower)) {
                     scenario = "success-warning"; // matches "funny" in keywords
                 }
                 // user insults CodeTurtle / is rude
