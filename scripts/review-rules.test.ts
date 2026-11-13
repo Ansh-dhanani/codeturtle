@@ -87,6 +87,17 @@ check(
 const honestClean = reconcileSummaryWithFindings("No critical issues found; minor naming follows.", [], []);
 check("honest clean summary is preserved", /No critical issues found/i.test(honestClean), honestClean);
 
+const defectNarrative = reconcileSummaryWithFindings(
+  "However, a Byte Order Mark (BOM) character was inadvertently added to server.js, which can cause subtle issues. The endpoint's API contract changed, which contradicts the stated intent.",
+  [],
+  [],
+);
+check(
+  "defect narrative with zero findings is replaced by the honest fallback",
+  /No validated findings/i.test(defectNarrative) && !/Byte Order Mark \(BOM\)/i.test(defectNarrative),
+  defectNarrative,
+);
+
 // --- Score calibration -----------------------------------------------------
 const criticalIssues = [
   { title: "x", description: "x", file: "a.ts", severity: "critical" as const, suggestion: "x" },

@@ -645,7 +645,7 @@ export function isNoOpCodeChange(before?: string, after?: string): boolean {
 }
 
 const DEFECT_CLAIM_PATTERN =
-  /(critical|severe|vulnerab|security (issue|regression|bug|hole)|data breach|unauthorized|syntax error|will not start|fails? to (start|compile|build)|broken|data loss|sql injection|xss|exposed? (token|secret|credential))/i;
+  /(critical|severe|vulnerab|security (issue|regression|bug|hole)|data breach|unauthorized|syntax error|will not start|fails? to (start|compile|build)|broken|data loss|sql injection|xss|exposed? (token|secret|credential)|bom|byte order mark|inadvertent|contradict|regression|incorrect|wrong|unsafe|mismatch|unintentional|silently|leak)/i;
 
 const CLEAN_CLAIM_PATTERN =
   /(no (critical|blocking|major|actionable|significant|security|real)?\s*(issues|findings|problems|vulnerabilities)|looks good|ready to merge|lgtm|no issues (found|identified|were found))/i;
