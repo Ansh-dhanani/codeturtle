@@ -1039,7 +1039,7 @@ export const processPREvent = inngest.createFunction(
                 }
             });
 
-            progressGifUrl = await step.run("Post review in progress comment", async () => {
+            const progress = await step.run("Post review in progress comment", async () => {
                 const octokit = await getPreferredOctokit(owner, repo, userId);
 
                 // Reuse an existing progress comment if one exists on this PR so
@@ -1065,7 +1065,6 @@ export const processPREvent = inngest.createFunction(
                 );
 
                 if (existingProgress) {
-                    progressCommentId = existingProgress.id;
                     await octokit.rest.issues.updateComment({
                         owner,
                         repo,
@@ -1073,7 +1072,7 @@ export const processPREvent = inngest.createFunction(
                         body,
                     });
                     l.info("Reused existing review progress comment", { owner, repo, prNumber, commentId: existingProgress.id });
-                    return gifUrl;
+                    return { gifUrl, commentId: existingProgress.id as number };
                 }
 
                 const { data: comment } = await octokit.rest.issues.createComment({
@@ -1082,10 +1081,11 @@ export const processPREvent = inngest.createFunction(
                     issue_number: prNumber,
                     body,
                 });
-                progressCommentId = comment.id;
                 l.info("Posted review in progress comment", { owner, repo, prNumber, commentId: comment.id, gifUrl });
-                return gifUrl;
-            })
+                return { gifUrl, commentId: comment.id as number };
+            });
+            progressGifUrl = progress.gifUrl;
+            progressCommentId = progress.commentId;
 
             await step.run("Update progress: fetch context", async () => {
                 await updateProgressComment({
