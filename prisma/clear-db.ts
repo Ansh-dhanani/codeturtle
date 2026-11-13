@@ -10,19 +10,19 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL })
 const adapter = new PrismaPg(pool)
 const prisma = new PrismaClient({ adapter })
 async function clearDatabase() {
-  console.log('🗑️  Clearing database...')
+  console.log('Clearing database...')
   try {
     await prisma.verification.deleteMany()
-    console.log('✓ Cleared verifications')
+    console.log('OK Cleared verifications')
     await prisma.session.deleteMany()
-    console.log('✓ Cleared sessions')
+    console.log('OK Cleared sessions')
     await prisma.account.deleteMany()
-    console.log('✓ Cleared accounts')
+    console.log('OK Cleared accounts')
     await prisma.user.deleteMany()
-    console.log('✓ Cleared users')
-    console.log('\n✅ Database cleared successfully!')
+    console.log('OK Cleared users')
+    console.log('\nOK Database cleared successfully!')
   } catch (error) {
-    console.error('❌ Error clearing database:', error)
+    console.error('ERROR Error clearing database:', error)
     throw error
   } finally {
     await prisma.$disconnect()

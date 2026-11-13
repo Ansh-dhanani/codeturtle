@@ -20,6 +20,7 @@ const {
   reconcileSummaryWithFindings,
   clampScoreToFindings,
   deriveReviewDecision,
+  stripEmojis,
 } = await import("../src/module/ai/lib/review");
 
 let passed = 0;
@@ -113,6 +114,16 @@ check(
 check(
   "low score with findings requests changes",
   deriveReviewDecision({ issues: warningIssues, overallScore: 3 }).event === "REQUEST_CHANGES",
+);
+
+// --- Emoji stripping --------------------------------------------------------
+check(
+  "emoji and variation selectors are removed from model output",
+  stripEmojis("Looks good \u{1F389} but check this \u{2600}\u{FE0F} carefully") === "Looks good but check this carefully",
+);
+check(
+  "normal ASCII text is preserved untouched",
+  stripEmojis("No issues found in src/index.ts") === "No issues found in src/index.ts",
 );
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -143,7 +143,7 @@ export async function POST(req: Request) {
   // Detects when someone checks "Yes, review this PR" inside a CodeTurtle
   // confirmation prompt the bot posted to a PR (when Review mode = Ask).
   const isReviewConfirmationChecked = (text: string) =>
-    /-\s*\[\s*x\s*\]\s*✅\s*\*\*Yes,\s*review this PR\*\*/i.test(text);
+    /-\s*\[\s*x\s*\]\s*(?:\u2705\s*)?\*\*Yes,\s*review this PR\*\*/i.test(text);
 
   if (event === 'pull_request') {
     try {

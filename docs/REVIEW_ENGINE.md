@@ -113,7 +113,7 @@ Judge v2 prompt rules:
 
 - ≤ 5 findings; positives capped at 3; order severities.
 - Inline on changed lines; no summary-only walls of text.
-- Footer lists stage availability honestly, e.g. `Checks: logic ✓ · security ✓ (risk paths only) · static analysis unavailable`.
+- Footer lists stage availability honestly, e.g. `Checks: logic: available, security: available (risk paths only), static analysis: unavailable`.
 - Follow-ups (`@codeturtle`) reference the finding `id`; dismissals are counted (see metrics).
 - Failure comment: plain text, what failed, what to retry — **no meme** (humor is for success path only, and remains user-toggleable).
 
@@ -216,7 +216,7 @@ Failure-handling validation (both runs): provider 429 → one backoff retry → 
 12. Token/quota discipline: token usage logged per model call (`inputTokens`/`outputTokens` in structured logs), one automatic 429/rate-limit retry with backoff before fallback, failure comments report the concrete cause. Per-provider quota *management* (not just measurement) remains future work.
 
 **P3 — partial 2026-11-12:**
-13. Feedback loop closed: 👍/👎 on findings already existed in the Reviews UI and `ReviewFeedback` table; the analyzer now loads the user's 8 most recent rejected findings and is instructed not to repeat them, and Analytics shows helpful/not-helpful counts + helpful rate ("Findings feedback" card on the analytics page, all-repository or per-repo scope). Conversational follow-ups shipped previously via `@codeturtle`. Dismiss tracking via reactions/conversations on GitHub inline comments: **not implemented** (would require webhook for reaction events).
+13. Feedback loop closed: helpful/not-helpful votes on findings already existed in the Reviews UI and `ReviewFeedback` table; the analyzer now loads the user's 8 most recent rejected findings and is instructed not to repeat them, and Analytics shows helpful/not-helpful counts + helpful rate ("Findings feedback" card on the analytics page, all-repository or per-repo scope). Conversational follow-ups shipped previously via `@codeturtle`. Dismiss tracking via reactions/conversations on GitHub inline comments: **not implemented** (would require webhook for reaction events).
 
 **P3 — experience**
 13. Per-finding replies, dismiss tracking, review analytics in dashboard.

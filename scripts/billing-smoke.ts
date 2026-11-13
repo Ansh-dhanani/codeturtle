@@ -30,7 +30,7 @@ async function main() {
   const user = await prisma.user.create({
     data: { id: crypto.randomUUID(), name: "Billing Smoke", email, emailVerified: true },
   });
-  console.log("✓ scratch user:", user.id);
+  console.log("OK scratch user:", user.id);
 
   const { webhooks } = await import("@polar-sh/sdk/2026-10");
   const { handlePolarSubscriptionEvent } = await import("../src/lib/billing.server");
@@ -57,7 +57,7 @@ async function main() {
     },
     SECRET,
   );
-  console.log("✓ signature validation passed");
+  console.log("OK signature validation passed");
 
   type HandlerArg = Parameters<typeof handlePolarSubscriptionEvent>[0];
   const toHandler = (type: string, data: unknown): HandlerArg =>
@@ -67,7 +67,7 @@ async function main() {
   if (active?.plan !== "pro" || active?.usageLimit !== 100) {
     throw new Error(`FAIL: expected plan=pro/usageLimit=100, got plan=${active?.plan}/${active?.usageLimit}`);
   }
-  console.log(`✓ subscription.created -> plan=${active.plan}, usageLimit=${active.usageLimit}`);
+  console.log(`OK subscription.created -> plan=${active.plan}, usageLimit=${active.usageLimit}`);
 
   await handlePolarSubscriptionEvent({
     type: "subscription.canceled",
@@ -77,16 +77,16 @@ async function main() {
   if (canceled?.plan !== "free" || canceled?.usageLimit !== 20) {
     throw new Error(`FAIL: expected plan=free/usageLimit=20, got ${canceled?.plan}/${canceled?.usageLimit}`);
   }
-  console.log(`✓ subscription.canceled -> plan=${canceled.plan}, usageLimit=${canceled.usageLimit}`);
+  console.log(`OK subscription.canceled -> plan=${canceled.plan}, usageLimit=${canceled.usageLimit}`);
 
   await prisma.subscription.deleteMany({ where: { userId: user.id } });
   await prisma.user.deleteMany({ where: { id: user.id } });
-  console.log("✓ cleanup done — billing path is working");
+  console.log("OK cleanup done — billing path is working");
 }
 
 main()
   .catch((err) => {
-    console.error("✗", err instanceof Error ? err.message : err);
+    console.error("FAIL", err instanceof Error ? err.message : err);
     process.exitCode = 1;
   })
   .finally(async () => {

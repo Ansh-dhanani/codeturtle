@@ -1,6 +1,6 @@
 /**
  * Very famous, broadly trusted models that are likely to remain available.
- * Shown as a ★ "Recommended" hint in the UI. This is NOT a ranking - it's a
+ * Shown as a "Recommended" hint in the UI. This is NOT a ranking - it's a
  * whitelist of recognizable, battle-tested families. If a model disappears
  * from the live catalog, the star simply stops rendering.
  *

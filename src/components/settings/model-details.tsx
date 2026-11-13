@@ -40,7 +40,7 @@ export function ModelDetailRow({ model }: { model: CatalogModel }) {
           className="border-amber-500/30 bg-amber-500/10 px-1.5 py-0 text-[10px] font-semibold text-amber-600 dark:text-amber-400"
           title="Famous, broadly trusted model family - likely to remain available. Not a ranking."
         >
-          ★ Recommended
+          Recommended
         </Badge>
       )}
       {ctx && (

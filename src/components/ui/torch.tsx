@@ -16,13 +16,13 @@ const TorchCheckbox: React.FC<CheckboxProps> = ({ onChange }) => {
           localStorage.setItem('torchCount', count.toString());
       
           if (count === 1) {
-            toast.success('Achievement Unlocked: Fear Conquered 🔥');
+            toast.success('Achievement Unlocked: Fear Conquered.');
           } else if (count === 2) {
-            toast.success('Torch lit again! You\'re a natural! 🌟');
+            toast.success('Torch lit again. You are a natural.');
           } else if (count === 3) {
-            toast.success('Third time\'s the charm! Keep shining! ✨');
+            toast.success('Third time is the charm. Keep shining.');
           } else {
-            toast.success(`Torch master! Lit ${count} times. You\'re unstoppable! 🚀`);
+            toast.success(`Torch master! Lit ${count} times. You are unstoppable.`);
           }
         }
       } catch (error) {

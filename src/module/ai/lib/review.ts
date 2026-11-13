@@ -718,6 +718,11 @@ function isUnusedOrPlaceholderFinding(title: string, description: string): boole
   );
 }
 
+const EMOJI_PATTERN = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}\u{2700}-\u{27BF}]/gu;
+export function stripEmojis(value: string): string {
+  return value.replace(EMOJI_PATTERN, "").replace(/ {2,}/g, " ");
+}
+
 function sanitizeReviewOutput(
   review: CodeReview,
   params: {
@@ -734,7 +739,7 @@ function sanitizeReviewOutput(
   const prIntent = classifyPrIntent(prTitle, prBody);
   const probeLikePr = prIntent.kind === "pipeline-probe" || prIntent.kind === "test-only";
 
-  const cleanedSummary = review.summary.trim().slice(0, 2500) || "No summary was produced for this review.";
+  const cleanedSummary = stripEmojis(review.summary).trim().slice(0, 2500) || "No summary was produced for this review.";
   const boundedScore = Math.max(0, Math.min(10, Math.round(review.overallScore)));
 
   // Deterministic verification (schema v2 / evidence-bearing findings):
@@ -786,9 +791,9 @@ function sanitizeReviewOutput(
       return {
         ...issue,
         severity: downgradeSeverity(String(issue.severity || "warning")),
-        title: issue.title.trim().slice(0, 240),
+        title: stripEmojis(issue.title).trim().slice(0, 240),
         description: description.slice(0, 1600),
-        suggestion: issue.suggestion.trim().slice(0, 1200),
+        suggestion: stripEmojis(issue.suggestion).trim().slice(0, 1200),
         file,
         line: isNearChangedLine(diffContext, file, line) ? line : undefined,
       };
@@ -848,8 +853,8 @@ function sanitizeReviewOutput(
       return {
         ...suggestion,
         file,
-        title: suggestion.title.trim().slice(0, 220),
-        description: suggestion.description.trim().slice(0, 1200),
+        title: stripEmojis(suggestion.title).trim().slice(0, 220),
+        description: stripEmojis(suggestion.description).trim().slice(0, 1200),
         codeBefore: usablePatch ? suggestion.codeBefore?.slice(0, 4000) : undefined,
         codeAfter: usablePatch ? suggestion.codeAfter?.slice(0, 4000) : undefined,
       };
@@ -878,7 +883,7 @@ function sanitizeReviewOutput(
     .slice(0, maxPositives);
 
   // Only keep architecture notes the model explicitly provided. Never fabricate filler from file names.
-  const architectureNotes = review.architectureNotes?.trim().slice(0, 1200) || undefined;
+  const architectureNotes = stripEmojis(review.architectureNotes ?? "").trim().slice(0, 1200) || undefined;
 
   // Drop padding-y notes the model often invents for trivial diffs.
   const meaningfulArchNotes =
@@ -888,7 +893,7 @@ function sanitizeReviewOutput(
       ? architectureNotes
       : undefined;
 
-  const diagram = review.diagram?.trim();
+  const diagram = stripEmojis(review.diagram ?? "").trim() || undefined;
 
   const finalScore = clampScoreToFindings(boundedScore, issues);
   const finalSummary = reconcileSummaryWithFindings(cleanedSummary, issues, suggestions);
@@ -1155,6 +1160,7 @@ The score MUST agree with the findings: a critical finding caps the score at 4, 
 
 const JSON_OUTPUT_INSTRUCTIONS = `You must output a single strictly valid JSON object that matches the requested schema EXACTLY!
 Do NOT wrap the JSON in markdown code blocks. Do NOT output any chain-of-thought, commentary, or text outside the JSON.
+Never use emojis anywhere in the output - the renderer uses SVG icons instead.
 CRITICAL JSON RULES:
 - Use double quotes for all strings and keys.
 - You can use standard newlines inside the diagram string.
@@ -1169,7 +1175,7 @@ Choose the most appropriate diagram type:
 - sequenceDiagram: request/response chains, API calls, async flows
 Rules:
 - Output raw Mermaid syntax only - no markdown fences.
-- Max 12 nodes; labels ≤4 words using real names from the diff.
+- Max 12 nodes; labels at most 4 words using real names from the diff.
 - Do NOT use double quotes inside Mermaid labels to avoid breaking JSON string bounds.
 - The diagram must add information the summary does not already convey; if unsure, omit it.`;
 
