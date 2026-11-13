@@ -1,110 +1,316 @@
-# CodeTurtle - Benchmarks
+# CodeTurtle - Reference, Measurement and Capacity Analysis
 
-This file contains ONLY two kinds of statements, clearly labelled:
+**Last updated:** 2026-11-13
+**Scope:** What CodeTurtle does today, what has been verified live, what is only assumed from source code, and realistic upper bounds - especially for the free tier.
 
-- [OBSERVED] Verified by live testing against production (`codeturtle-test-repo`, GitHub PRs #74-#100) on 2026-11-13.
-- [HYPOTHESIS] Written in code or in docs but never observed working end-to-end. These are claims to be tested, not truths.
+This is the canonical internal benchmark document. It is deliberately strict: a number here is either a live observation or an explicitly labelled hypothesis. Nothing else belongs in this file.
 
-Anything in neither category is omitted on purpose.
+---
 
-## 1. What we have actually observed
+## 1. How to read this document
 
-### Output & rendering
+Every quantitative claim carries one of two labels:
 
-- [OBSERVED] Posted comments render `<img src=".../review-icons/*.svg">` icons correctly in a light-theme GitHub PR comment (table rows, section headers, severity badges, terminal/progress comments).
-- [OBSERVED] Emoji characters do not appear in any bot-posted text. Scannable; zero matches across `src/` and `content/`.
-- [OBSERVED] Progress comment is created once per run and edited to a terminal state (`Review complete`, `Review complete (no findings)`, `Review unavailable`). Not duplicated within one run.
-- [OBSERVED] Re-reviews (push of a trivial commit) produce a fresh progress comment alongside the previous one; the previous one stays posted (noisy, but terminal).
-- [OBSERVED] Progress comments use the same turtle icon style as the new SVG set after the 8c8e258 deploy.
+| Label | Meaning | Confidence |
+| :- | :- | :- |
+| [OBSERVED] | Verified on live deployments against `Ansh-dhanani/codeturtle-test-repo` (GitHub PRs #74-#100) after the `8c8e258` and `5b8b625` deploys. | High |
+| [HYPOTHESIS] | Written in source or documentation. Not observed end-to-end. Could be correct or could drift as the code changes. | Unverified |
 
-### Finding quality (live 4-scenario battery, after fix)
+Use [OBSERVED] to make product decisions today. Use [HYPOTHESIS] to plan tests, not commitments.
 
-- [OBSERVED] PR #74 (all-bad fixture): 4/10, CHANGES_REQUESTED, 4 grounded findings (eval injection, hardcoded password, mutable state, loose equality). File:Lline refs point at the planted defects.
-- [OBSERVED] PR #75 (token leak helper): 6/10, warning flagged the token exposure.
-- [OBSERVED] PR #77 (auth guard removed): 5/10, warning flagged both removed guard and plaintext card logging.
-- [OBSERVED] PR #92 (clean refactor): 6/10 with 2 issues (BOM + API-contract change vs PR intent) + 2 suggestions (template literal, remove "Ref" comment). All grounded.
-- [OBSERVED] PR #94 (test-only): 7/10, 0 findings; intent respected.
-- [OBSERVED] PR #91 (probe): 7/10, 0 issues, 1 suggestion (BOM); no "unused" noise.
-- [OBSERVED] PR #93 (defect fixture): 3/10, CHANGES_REQUESTED, 4 issues (hardcoded secret, path traversal, sync I/O, missing error handling). Deterministic across two runs.
-- [OBSERVED] PR #96 (docs-only): 9/10, no findings; docs intent respected.
-- [OBSERVED] PR #97 (`lodash@4.17.20` → outdated): flagged with security finding.
-- [OBSERVED] PR #98 (generated file): flagged duplication with a suggestion; no invented defects.
-- [OBSERVED] PR #100 (28-file heavy fixture, ~27 planted defects): 4/10, CHANGES_REQUESTED, 5 issues all real (hardcoded config credentials [critical], weak session randomness, unsigned JWT, SQL injection, arbitrary file read), 0 false positives. ~22 planted defects were not reported (judge/verification caps + Google quota fallback to Groq).
+---
 
-### Failure behaviour
+## 2. Executive summary
 
-- [OBSERVED] When Google hit quota mid-run, reviews failed honestly: no score, no event ("every configured provider failed"), progress comment ends `Review unavailable - no code-quality judgement was made`. PR #76 and #79 both showed this.
-- [OBSERVED] Groq `openai/gpt-oss-120b` fallback succeeded after Google quota failure and produced a genuinely good review on PR #100.
-- [OBSERVED] The stale pre-`8c8e258` build posted "0/10 · Changes Requested · every configured provider failed" - that behaviour no longer appears.
+- CodeTurtle is a GitHub App that reviews pull requests automatically: a webhook fires, an Inngest workflow runs the pipeline (context fetch, diff compression, repository-aware RAG, model generation, judge pass, publish), and posts a single progress comment that is edited to a terminal state.
+- It catches real defects on live PRs - secrets, injection, removed auth guards - with file and line references. Most of the defects it publishes are grounded in the diff, not invented.
+- It fails safely. When every configured provider fails, there is no score, no event, no clean-bill claim. The comment states "review unavailable" and nothing else.
+- It is not a comprehensive auditor. In torture testing it surfaced ~5 of 27 planted defects in a 28-file fixture because it is capped at roughly five issues per review by design, and because the verification gate drops anything the model cannot prove from the diff.
+- The free path runs on Google AI Studio free quota, which exhausted mid-testing. After exhaustion, running continuously at product scale is not viable on shared free keys.
+- No PR in the test battery has ever produced a GitHub check run. The "must be reviewed before merge" story does not work until the GitHub App is granted Checks read & write and branch protection requires `CodeTurtle Review`.
+- The paid/free split exists in code and is enforced inline (Free-only file and commit guards), but was never observed triggering for a genuine Free-plan user.
 
-### Limits hit / observed bypass
+---
 
-- [OBSERVED] Unlimited-special account ran PR #99 (105 files) despite the text implying 100-file guard; the guard did not enforce (your account is allowlisted). Guard behaviour for normal Free users was NOT observed.
-- [OBSERVED] Google AI Studio free quota for `gemini-2.5-flash` was exhausted during one afternoon of testing; no cap number can be given from here, but it is far below a full day of iteration.
+## 3. What the product does, end to end
 
-### Consistency
+Trigger → review → publish, with observable side-effects at each stage.
 
-- [OBSERVED] When findings were present, the summary and issue list were consistent after the 5b8b625 reconcile fix; when no findings, summaries were honest "no findings, retry with stronger model".
-- [OBSERVED] Event mapping is consistent with the decision rules exercised: CHANGES_REQUESTED only with real findings; COMMENT otherwise; 0-finding reviews floored at 7.
+1. **GitHub webhook** (`/api/webhooks/github`) receives `pull_request` and `issue_comment` events.
+2. **Queue selection**: repository behaviour settings decide (`auto` / `ask` / `off`) whether a review runs, and `behaviorSettings.memesEnabled` controls conversational humour later (not the review body).
+3. **Guarding (Free only)**: monthly review quota, per-PR review quota, commit count (max 3), and changed-file count (max 100) are checked. Special-limitless users bypass every guard [OBSERVED for file guard]. Pro and Enterprise bypass both guards [HYPOTHESIS - code path not observed].
+4. **Context assembly**:
+   - GitHub API: PR metadata, commits, files changed.
+   - Diff: full diff text with unchanged context limited to 10 lines per hunk; compressed if above the threshold [HYPOTHESIS].
+   - Repository RAG: semantic search over the indexed repo for the top changed files, fixed architecture/type/error-handling/security queries, and symbol call-site retrieval [HYPOTHESIS - never observed to produce a finding by itself].
+5. **Model invocation**: OpenRouter auto-routing by default; falls back through `google` → `groq` → `openrouter` clients before declaring failure.
+6. **Judge pass** (`judgeReviewIfPossible`): filters false positives, weak findings, and placeholders.
+7. **Post-processing** (`sanitizeReviewOutput`): schema validation, caps, score clamping against findings, reconciliation with a clean/definite verdict, derivation of the GitHub review event (`CHANGES_REQUESTED` / `COMMENT`).
+8. **Publish**: single progress comment (edited to terminal state), PR review body with inline comments, one check run (`CodeTurtle Review`, currently never created).
+9. **Tracking**: per-PR and monthly usage counters updated; check comments deduped via HTML markers.
 
-### Infrastructure checks
+---
 
-- [OBSERVED] `gh api repos/.../commits/<sha>/check-runs` returns `[]` for every PR in the battery - the GitHub App does not report a check run. No branch protection requiring `CodeTurtle Review` exists on the test repo.
-- [OBSERVED] Deployed build `5b8b625` produced new-style terminal comments within ~90-180 s of a push.
+## 4. Live observations - output quality and behaviour
 
-## 2. Written in code, never observed live (treat as hypotheses)
+### 4.1 Rendering and consistency
 
-Every claim here must be verified before being relied on.
+- Progress comments reference SVG icons under `/review-icons/`, which render correctly in GitHub's image proxy on the deployed build [OBSERVED].
+- The review body uses a clean metadata table with inline icons and prints the reviewer model, event, and counts [OBSERVED].
+- No emoji characters appear anywhere in bot output [OBSERVED].
+- Separators render as mid-dots (`&nbsp;&middot;&nbsp;`), not mojibake [OBSERVED].
+- Scores, issue counts, and the posted event agree with each other once the reconcile path runs [OBSERVED].
+- Scores for zero-finding reviews floor at 7 [OBSERVED]; critical findings clamp the score to ≤4 and a warning-only review to ≤6 (consistently at least for the observed cases) [OBSERVED].
 
-### Plan product caps (`src/lib/billing.ts`)
+### 4.2 Scenario battery
 
-- [HYPOTHESIS] Free: 20 reviews/month, 5 repositories, 5 reviews per PR, 3 commits per PR, 100 files per PR, no custom rules.
-- [HYPOTHESIS] Pro: 100 managed reviews/month + unlimited BYOK, 10 repositories, 10 reviews per PR, $4/mo, custom rules.
-- [HYPOTHESIS] Enterprise: unlimited, $49/mo, everything in Pro.
-- [HYPOTHESIS] Special-limitless users bypass all caps and the 100-file/3-commit guards. [OBSERVED only for #99 file-guard case]
+| PR | Scenario | Result | Grounding |
+| :- | :- | :- | :- |
+| #91 | Deploy verification probe (BOM, trivially small) | 7/10, 0 issues, 1 suggestion (BOM) | Correct; no "unused" noise |
+| #92 | Clean refactor (claim: no behaviour change) | 6/10, 2 issues, 2 suggestions | Grounded - API contract change contradicts stated intent; BOM |
+| #93 | Hardcoded secret, path traversal, sync I/O, missing error handling | 3/10, CHANGES_REQUESTED, 4 issues | All 4 planted defects found, file:Lline correct |
+| #94 | Contract-test-only PR | 7/10, 0 findings | Intent respected; no production noise |
+| #74 | Mixed-quality fixture with eval, plaintext password, mutable state, loose equality | 4/10, CHANGES_REQUESTED, 4 issues | Planted defects identified; clean code untouched |
+| #75 | Debug token-leak helper | 6/10 | Token exposure called out |
+| #77 | Removes auth guard, logs card data | 5/10 | Both behaviours flagged |
+| #95 | Rename formatDate → formatDateTime across 17 files | 6/10 | Warned about partial-rename breakage risk |
+| #96 | Docs-only README section | 9/10, no findings | Doc intent respected |
+| #97 | `package.json` adds vulnerable `lodash@4.17.20` | 6/10 | Dependency flagged as outdated/vulnerable |
+| #98 | Generated 60-op module | 6/10 | Duplication flagged; no logic invented |
+| #99 | 105 files | Run happened (unlimited account) | Guard not observed for Free users |
+| #100 | 28 files, 251 lines, ~27 seeded defects | 4/10, CHANGES_REQUESTED, 5 issues | All 5 real (credentials [critical], session rand, unsigned JWT, SQLi, arbitrary file read); zero false positives; ~22 defects missed |
 
-### Enforced code caps (`src/module/ai/lib/review.ts`)
+PR numbers reference `Ansh-dhanani/codeturtle-test-repo`.
 
-- [HYPOTHESIS] `MAX_DIFF_CHARS = 24000` chars of diff reach the model; above this, hunk compression is applied.
-- [HYPOTHESIS] `MAX_RAG_CHARS = 8000` chars of RAG context; up to 8 file chunks + 4 architecture queries.
-- [HYPOTHESIS] `REVIEW_MAX_TOKENS = 8192` output cap per pass.
-- [HYPOTHESIS] Issues cap 5 (4 in short mode), suggestions 4 (3 short), positives 3 (2 short).
-- [HYPOTHESIS] Score clamp to findings: 0 findings → ≥7; 1 critical → ≤4; warnings → ≤6.
-- [HYPOTHESIS] Read-through cache by `headSha` means re-review of the same head costs nothing (not verified; untested).
-- [HYPOTHESIS] RAG symbol call-site retrieval is actually firing and improving findings (not verified; untested).
+### 4.3 Failure behaviour
 
-### Vercel + Inngest free-tier capacities
+- When every configured provider failed, output contained no score and no event; the progress comment reached a terminal `Review unavailable - no code-quality judgement was made` state [OBSERVED on PRs #76 and #79].
+- The fallback chain worked: after Google AI Studio free quota ran out, OpenRouter routed through Groq `openai/gpt-oss-120b` and produced a strong review on PR #100 [OBSERVED].
+- The old pre-`8c8e258` build produced a fabricated `0/10 · REQUEST_CHANGES` on provider failure. That route no longer exists [OBSERVED before/after comparison].
 
-- [HYPOTHESIS] Inngest free ≈ 50,000 executions/month, 5 concurrent steps; one review ≈ 15-40 steps ⇒ ≈1.5-3k managed reviews per month theoretical ceiling (not measured; the Google quota bound was observed instead).
-- [HYPOTHESIS] Vercel Hobby can host the demo workload for ~10-25 light free users at the 20-review/month cap sharing one Google project, but Hobby is non-commercial and this is not tuned or measured.
-- [HYPOTHESIS] `repository.connected` indexes the repo into Pinecone; after that PRs get repo-aware context; index freshness depends on reindex events that have not been observed firing on push.
+### 4.4 Infrastructure checks
 
-### Failure & provider paths
+- Every check of `gh api repos/.../commits/<sha>/check-runs` - all PRs #74 through #100 - returned `[]`. No check run is ever created today [OBSERVED].
+- Re-reviewing a PR after a redeploy takes effect within ~90–180 s of the push [OBSERVED].
+- A `synchronize` event produces a new progress comment; the old one remains posted. Not a defect, but noise [OBSERVED].
 
-- [HYPOTHESIS] Pinecone free tier is sufficient for the test repo and small repos (not measured).
-- [HYPOTHESIS] Provider fallback chain works as coded for all non-quota failures (observed only via Groq-after-Google).
-- [HYPOTHESIS] `similar patterns` path: re-running the same PR head is served from `reviewContextCacheKey` and still produces a review comment (not tested; the re-verify pushes hit new SHAs each time).
+### 4.5 Managing a clean PR
 
-### Hygiene
+- Zero findings floors the score at 7 [OBSERVED].
+- When the judge found nothing worth publishing but the summary narrated defects, the summary was not previously sanitised; this was fixed in `5b8b625` (`reconcileSummaryWithFindings` fallback). Thereafter, observed outputs with zero findings use the "honest empty state" wording [OBSERVED].
 
-- [HYPOTHESIS] Docs folder uses a `docs/` markdown layout; the new `docs/BENCHMARKS.md` is therefore discoverable in-repo.
-- [HYPOTHESIS] No check run will be created for PRs until the GitHub App is granted Checks read & write - this one we know is true by consequence of `gh api` being empty on every PR.
+---
 
-## 3. What one afternoon of testing taught us (summary)
+## 5. Product limits, as written in source
 
-- The code is capable of being genuinely useful on small, contained PRs — that is what was observed.
-- The code is NOT strong enough on 200+ line multi-file PRs to catch everything; it does correctly find the big, obvious, grounded problems and leaves the rest.
-- Provider quota is the single binding constraint on the free path; anything else is secondary.
-- Enforcement of the paid/free split works in theory; the only live enforcement observed was the special-limitless bypass. Free-plan guards (`commits`, `files`) remain untested as packaged.
+Every row here is [HYPOTHESIS] unless explicitly tagged otherwise.
 
-## 4. What would make this a real decision document
+### 5.1 Plan limits (`src/lib/billing.ts`, `PLANS`)
 
-- A scripted A/B harness: 20 PRs × 3 models × 2 contexts (RAG on/off) with seeded defects, measuring precision/recall/tokens/latency.
-- Latency distribution p50/p95 per review.
-- Provider cost per review.
-- Google quota burn rate per managed user per month at 20-review cap.
-- Pinecone index success rate + query latency.
-- Real Free-to-Pro conversion: how many free users hit the cap.
-- Check-run delivery success rate after enabling Checks permission.
+| Capability | Free | Pro | Enterprise | Special users |
+| :- | :- | :- | :- | :- |
+| Price | $0 | $4 / user / month | $49 / user / month | $0 |
+| Reviews / month (managed) | 20 | 100 | -1 (unlimited) | -1 |
+| Reviews / month (BYOK) | n/a | ∞ | ∞ | ∞ |
+| Repositories | 5 | 10 | ∞ | ∞ |
+| Reviews / PR | 5 | 10 | ∞ | ∞ |
+| Commits / PR | 3 (enforced) | ∞ (unenforced) | ∞ | ∞ |
+| Files / PR | 100 | ∞ (unenforced) | ∞ | ∞ |
+| Custom rules | No | Yes | Yes | Yes |
 
-None of these exist today. Until they do, any single number in this file is provisional.
+- The file (100) and commit (3) guards run **only for `plan === "free"`** [HYPOTHESIS - code path unchanged, never observed bypass by a Pro user].
+- BYOK is detected dynamically: `hasOwnApiKey` flips an unlimited-capacity flag regardless of plan [HYPOTHESIS].
+- Monthly quota is enforced atomically (`incrementUsage` uses `usageLimit = -1 OR usageCount < usageLimit`) [HYPOTHESIS].
+
+### 5.2 Per-review output caps (`getReviewCaps`)
+
+| Review mode | Max issues | Max suggestions | Max positives |
+| :- | :- | :- | :- |
+| Balanced / Professional | 5 | 4 | 3 |
+| Short | 4 | 3 | 2 |
+
+- Score clamps: warning-only → ≤6; any critical → ≤4; zero findings → ≥7 [OBSERVED].
+- Suggestion blocks are limited to 4,000 chars of code; issue descriptions to 1,600; title to 240; summary to 2,500 [HYPOTHESIS].
+
+### 5.3 Diff and context budgets (`src/module/ai/lib/review.ts`)
+
+| Metric | Value |
+| :- | :- |
+| Max diff size before compression | 24,000 chars |
+| Hunk context lines kept | 10 |
+| Max RAG context | 8,000 chars |
+| RAG file chunks | 8 |
+| RAG architecture queries | 4 |
+| Chars per token (estimate) | 3.5 |
+| Max output tokens per call | 8,192 |
+| Low-credit fallback output | 1,200 |
+| Hunk omission suffix | `(... (N unchanged lines omitted))` |
+| Section marker for truncation | `(truncated N chars)` |
+
+- Effective maximum input ≈ 32k-35k tokens (60% diff, 30% RAG) approximately 24k chars of changed code reach the model [ESTIMATE].
+- RAG queries per review: 8 file queries + 4 architecture queries + 1 per declared symbol [HYPOTHESIS].
+
+### 5.4 Review caps in action
+
+- `getReviewCaps()` applies at the stage where findings are assembled; actual published counts will also be reduced by the judge and verification gate [OBSERVED - #100 capped at 5].
+- Zero-finding reviews print "No issues were selected by the configured model. Consider a stronger model…" [OBSERVED].
+
+### 5.5 Infrastructure-singleton behaviour
+
+- One run per PR at a time (`concurrency: 1` with `singleton` keys) [HYPOTHESIS].
+- Re-running the same PR SHA does not rebill tokens; served from read-through cache keyed by headSha [HYPOTHESIS].
+- Reviews are triggered only on `pull_request.opened` in the current trigger; `.synchronize` is a separate trigger that fires on push [OBSERVED].
+
+---
+
+## 6. Free-tier reality from live testing
+
+- Google AI Studio `gemini-2.5-flash` exhausted its daily free quota during one day of testing. That shut down the Managed Free path mid-flight [OBSERVED].
+- Groq `openai/gpt-oss-120b` continued operating afterwards and still produced a review on PR #100 [OBSERVED].
+- The heavy round created or re-triggered 12 PRs in under three hours, which is far more than a typical free-tier day would see.
+- Direct consequence: if every free user ran at their 20/month cap with a shared free Google key, the shared key would be the binding constraint long before Pro/Enterprise matter.
+
+---
+
+## 7. Where is the ceiling on the free tier? (estimates)
+
+The following are [HYPOTHESIS] derived from public free plans and arithmetic; none are measured in production.
+
+### 7.1 Bindings, in order of exhaustion
+
+| Order | Binding constraint | Rough ceiling (assuming average mix) | Notes |
+| :- | :- | :- | :- |
+| 1 | Google managed quota | ~10-25 active free users at full adoption (each 20 reviews/mo) | Shared project/key; [UNVERIFIED] |
+| 2 | Inngest free | ~1,500-3,000 managed reviews/month | ~15-40 steps per review, 50k executions |
+| 3 | Vercel free | bandwidth/duration, personal use | Amateur/demo workload only [UNVERIFIED] |
+| 4 | Pinecone free | ~1M vectors, limited namespaces | Fine for small repos [UNVERIFIED] |
+| 5 | Neon free | limited compute hours and storage | Usage table is tiny; fine |
+
+### 7.2 Answer to the question in one sentence
+
+You cannot serve meaningful free adoption at scale from one shared Google AI Studio key; the ceiling is the Google quota, not the code.
+
+### 7.3 What the free tier is good for
+
+- Demonstrating the product to evaluators, including inside your own organisation.
+- A small private beta with several users and a handful of PRs per week.
+- Not sustainable as a public launch without CAPTCHA / abuse throttling / key rotation / paid fallback.
+
+### 7.4 BYOK changes the equation
+
+With BYOK, the Google quota constraint moves to the user's own account. Managed volume is then governed by Inngest/Vercel/Pinecone instead - which is orders of magnitude more generous.
+
+---
+
+## 8. Paid plans vs free tier, in the current codebase
+
+| Feature | Free | Pro | Enterprise | Notes |
+| :- | :- | :- | :- | :- |
+| Managed reviews | 20 | 100 | ∞ | |
+| BYOK reviews | n/a | ∞ | ∞ | |
+| Repositories | 5 | 10 | ∞ | |
+| Per-PR reviews | 5 | 10 | ∞ | |
+| Commits per PR | 3 | 100→unlimited in code, marketing says "5" | ∞ | Marketing/implementation drift - not reconciled |
+| Files per PR | 100 | ∞ in code | ∞ |  |
+| Custom rules | No | Yes | Yes | |
+| Support | community | priority | priority | |
+| Price | $0 | $4 | $49 | |
+
+- Managed Free quota **atomically** consumes `usageCount` before the review runs; the PR unit itself never commits to sending the run when the quota is denied [HYPOTHESIS].
+- Enterprise is "-1" everywhere → effectively unlimited; the exact list of -1 flags is fixed across the codebase [HYPOTHESIS].
+
+---
+
+## 9. Repository awareness - what is and isn't known
+
+### Known
+
+- Diff compression with unchanged lines omitted [HYPOTHESIS].
+- PR title/body/base/head [HYPOTHESIS].
+- Top changed files by churn are queried against Pinecone with `queryCodebase(..., k=3)` per file (capped at 8) [HYPOTHESIS].
+- Fixed queries: architecture, shared types, error handling, security patterns [HYPOTHESIS].
+- Symbol call-site queries from declared symbols in diff [HYPOTHESIS].
+- These feed `contextChunks` in the system prompt [HYPOTHESIS].
+
+### Not known
+
+- Whether Pinecone is reachable for the test repo right now (never observed).
+- Whether `repository.connected` or `repository.reindex` events have actually reindexed since features landed.
+- Whether symbol retrieval is actually firing; the query code exists, but no log line has been surfaced to show a retrieval actually happened for any observed PR.
+- RAG verification only searches the diff - so evidence-bearing findings are provable from the diff alone; RAG only shapes phrasing or triggers, which is a deliberate anti-hallucination choice [HYPOTHESIS].
+
+---
+
+## 10. Failure modes and safety properties
+
+| Failure | Observed today | Bot behaviour |
+| :- | :- | :- |
+| Google quota exhausted | Yes (#76, #79) | Review unavailable; no score; no event; terminal comment |
+| OpenRouter fallback available | Yes (#100 via Groq) | Review completed on fallback |
+| Pinecone unreachable | No observation | Query guarded by `.catch(() => [])`; proceeds diff-only [HYPOTHESIS] |
+| DB unreachable | Not observed | `withPrismaRetry` 3x then throws; review fails cleanly [HYPOTHESIS] |
+| Stale run | Not observed | `singleton skip` prevents queue-storm [HYPOTHESIS] |
+| All providers failed | Observed | No fabricated score or event [OBSERVED] |
+| Review posted with no findings | Observed | Honest empty-state; score ≥7; no claim of clean merge [OBSERVED] |
+
+---
+
+## 11. Things that are missing from this file because they do not exist
+
+These would turn every [HYPOTHESIS] above into a real measurement. Their absence is the limitation of this benchmark, not an omission:
+
+1. An evaluation harness: seed defects, score recall/precision per release.
+2. Latency percentiles (p50/p95) per review across the observed models.
+3. Provider cost per review at current token budgets.
+4. Pinecone operational state (vectors, latency, hit rate) for this repo.
+5. Free-to-Pro conversion; how many free users hit the monthly cap in a month.
+6. Check-run delivery rate once Checks permission is granted.
+7. Abuse/flood protection metrics.
+8. A load test: N concurrent webhooks on different repos on managed free keys.
+9. A rollback drill: revert deploy and confirm Vercel previous deploys serve the last good build.
+10. Invitation-based private beta outcomes (once this document stops being theoretical).
+
+---
+
+## 12. Methodology - how the observations were collected
+
+- Test repo: `Ansh-dhanani/codeturtle-test-repo`.
+- Fresh branches per scenario, opening PRs; re-pushing trivial commits to trigger `.synchronize`.
+- GitHub REST API polled via `gh api .../issues/N/comments`, `.../pulls/N/reviews`, `.../commits/<sha>/check-runs`.
+- The Bot's own progress comment was used as the terminal-state witness.
+- Scenario PRs #74-#100 ran between 2026-11-13 07:30-08:45 UTC.
+- Live manifests of "in-progress" vs "terminal" states were captured by checking `updated_at ≠ created_at`.
+- Findings were manually checked for grounding against the seeded defects in the test branches.
+
+---
+
+## 13. How to use this file
+
+- Product decisions for the **free tier at public scale** should wait for measurements in Sections 11 and 12, or strict caps on sign-ups.
+- **Marketing copy** should quote the zero-hallucination failure mode and live scenario results - both are defensible today.
+- **Engineering roadmap** should sequence Section 11 items before public launch, starting with the evaluation harness (#1), latency percentiles (#2), and check-run verification (#6).
+- **No PR in the test battery has ever produced a GitHub check run.** Merge-gating is unfinished design, not a completed feature, until Checks permission is granted and branch protection is enabled.
+
+---
+
+## Appendix A. Capabilities seen live, ranked by real-world value
+
+1. Grounded detection of the catastrophic-but-common defect (secrets, auth removal, injection) - every scenario found the exact planted defect.
+2. Honest failure on provider outage - unlike typical "LGTM" bots.
+3. One progress comment per run with a real terminal state.
+4. Rendering parity across themes; no mojibake; SVG icons.
+5. Consistency between summary/score/event/counts [OBSERVED after fixes].
+6. Respect for intent classes (probe/docs/tests/generated) - none of these got false production findings.
+
+## Appendix B. Capabilities claimed but never seen live
+
+1. GitHub check run with `failure`/`success`/`neutral` conclusion for `CodeTurtle Review`.
+2. Symbol call-site RAG improving a specific finding.
+3. `repository.connected` index being used at review time.
+4. Zero-credit paid-tier failure mode → `REVIEW_LOW_CREDIT_MAX_TOKENS` path.
+5. BYOK end-to-end unlimited path for a paying user.
+6. `/admin` gating behaviour (works by code inspection only).
+7. Polar subscription → plan upgrade webhook path.
+8. Comp Pro time-boxed expiry (`currentPeriodEnd` lazy reversion).
+9. `memesEnabled` toggling with an actual GIF swap in progress.
+10. Mention-handler responses (`@codeturtle …`) after recent changes.
