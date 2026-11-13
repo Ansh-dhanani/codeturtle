@@ -156,19 +156,26 @@ export async function checkUsageLimit(userId: string): Promise<{ allowed: boolea
   }
 
   const limit = subscription.usageLimit;
-  const used = subscription.usageCount;
+  const rawUsed = subscription.usageCount;
+  // Atomic increment below prevents overage, but clamp defensively for any
+  // historical rows so the UI never reports "21/20".
+  const used = limit === -1 ? rawUsed : Math.min(rawUsed, limit);
   const remaining = limit === -1 ? -1 : Math.max(0, limit - used);
-  const allowed = limit === -1 || used < limit;
+  const allowed = limit === -1 || rawUsed < limit;
 
   return { allowed, limit, used, remaining };
 }
 
 export async function incrementUsage(userId: string): Promise<void> {
   if (await isSpecialLimitlessUser(userId)) return;
-  await prisma.subscription.updateMany({
-    where: { userId },
-    data: { usageCount: { increment: 1 } },
-  });
+  // Atomic conditional increment: concurrent reviews can never push usage past
+  // the plan limit. If the limit was already reached, this is a no-op.
+  await prisma.$executeRaw`
+    UPDATE "subscription"
+    SET "usageCount" = "usageCount" + 1, "updatedAt" = NOW()
+    WHERE "userId" = ${userId}
+      AND ("usageLimit" = -1 OR "usageCount" < "usageLimit")
+  `;
 }
 
 export async function checkPerPRReviewLimit(params: {
@@ -195,6 +202,9 @@ export async function checkPerPRReviewLimit(params: {
       owner: params.owner,
       repo: params.repo,
       prNumber: params.prNumber,
+      // Only completed reviews consume the per-PR allowance. Failed/unavailable
+      // runs are infrastructure events, not reviews the user received.
+      status: "completed",
       createdAt: {
         gte: start,
         lt: end,

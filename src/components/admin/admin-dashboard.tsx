@@ -397,7 +397,7 @@ export function AdminDashboard({ data }: { data: AdminOverview }) {
 
             <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-[11px] text-amber-700 dark:text-amber-300">
               <p className="font-semibold"><TrendingUp className="mr-1 inline h-3.5 w-3.5 align-text-bottom" />Watch the quota</p>
-              Free users hit their monthly cap and silently get "limit reached" comments. If a user stops getting reviews, this table is where you look first.
+              Free users hit their monthly cap and silently get &ldquo;limit reached&rdquo; comments. If a user stops getting reviews, this table is where you look first.
             </div>
           </CardContent>
         </Card>

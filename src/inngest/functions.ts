@@ -11,6 +11,7 @@ import { Prisma } from "@prisma/client";
 import { Octokit } from "octokit";
 import { checkPerPRReviewLimit, checkUsageLimit, incrementUsage, isSpecialLimitlessUser } from "@/lib/billing.server";
 import { getHumorLines, getSuccessHumorScenario } from "@/lib/review-humor";
+import { deriveReviewDecision, isReviewUnavailableError } from "@/module/ai/lib/review";
 
 type HumorScenario =
     | "success-clean"
@@ -36,8 +37,7 @@ const MAX_FREE_PLAN_PR_COMMITS = 3;
 const MAX_FREE_PLAN_PR_FILES = 100;
 const PRISMA_MAX_RETRIES = 3;
 
-const BILLING_URL = (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/+$/, "") + "/billing";
-const UPGRADE_CTA = `\n\n**[Upgrade to Pro ($4/mo) for 100 reviews/mo on managed keys - unlimited with your own API key →](${BILLING_URL})**`;
+const UPGRADE_CTA = `\n\n**Upgrades are temporarily disabled.** Email **dhananiansh01@gmail.com** for more reviews or an Enterprise plan.`;
 
 function sleep(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -79,7 +79,75 @@ async function withPrismaRetry<T>(label: string, fn: () => Promise<T>): Promise<
 }
 
 function isTransientReviewError(message: string): boolean {
-    return /(timeout|timed out|econnreset|etimedout|503|502|504|rate limit|temporar|try again)/i.test(message);
+    return /(timeout|timed out|econnreset|etimedout|503|502|504|rate limit|temporar|try again|quota|429|resource[_ ]?exhausted|overloaded|no object generated|json parsing failed|failed to parse ai response)/i.test(
+        message,
+    );
+}
+
+/** Retry transient GitHub API failures (secondary rate limits, 5xx) with backoff. */
+async function withGithubRetry<T>(label: string, fn: () => Promise<T>, attempts = 3): Promise<T> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+        try {
+            return await fn();
+        } catch (error) {
+            lastError = error;
+            const status = (error as { status?: number } | undefined)?.status;
+            const retriable = !status || status === 403 || status === 429 || status >= 500;
+            if (!retriable || attempt === attempts - 1) throw error;
+            l.warn("GitHub API call failed; retrying", {
+                label,
+                attempt: attempt + 1,
+                maxAttempts: attempts,
+                status,
+                error: error instanceof Error ? error.message : String(error),
+            });
+            await sleep(500 * (attempt + 1));
+        }
+    }
+    throw lastError;
+}
+
+/**
+ * Post or update a single operational comment (quota/failure). Uses a marker so
+ * repeated webhook deliveries never spam the PR with duplicates.
+ */
+async function upsertOperationalComment(params: {
+    octokit: Octokit;
+    owner: string;
+    repo: string;
+    prNumber: number;
+    marker: string;
+    body: string;
+}): Promise<void> {
+    const { octokit, owner, repo, prNumber, marker, body } = params;
+    const marked = `<!-- ${marker} -->\n${body}`;
+    try {
+        const comments = await withGithubRetry("list-operational-comments", () =>
+            octokit.paginate(octokit.rest.issues.listComments, {
+                owner,
+                repo,
+                issue_number: prNumber,
+                per_page: 100,
+            }),
+        );
+        const existing = comments.find((comment) => comment.body?.includes(`<!-- ${marker} -->`));
+        if (existing) {
+            if (existing.body === marked) return;
+            await withGithubRetry("update-operational-comment", () =>
+                octokit.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body: marked }),
+            );
+            return;
+        }
+    } catch (err) {
+        l.warn("Could not look up existing operational comment; creating a new one", {
+            owner, repo, prNumber, marker,
+            error: err instanceof Error ? err.message : String(err),
+        });
+    }
+    await withGithubRetry("create-operational-comment", () =>
+        octokit.rest.issues.createComment({ owner, repo, issue_number: prNumber, body: marked }),
+    );
 }
 
 async function buildProgressBody(
@@ -210,12 +278,14 @@ async function updateProgressComment(params: {
     try {
         const octokit = await getPreferredOctokit(owner, repo, userId);
         const { body } = await buildProgressBody(status, behaviorSettings, humorDedupeKey, progressGifUrl, { owner, repo, prNumber, headSha, baseBranch, headBranch, runId, settingsPath });
-        await octokit.rest.issues.updateComment({
-            owner,
-            repo,
-            comment_id: commentId,
-            body,
-        });
+        await withGithubRetry("update-progress-comment", () =>
+            octokit.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: commentId,
+                body,
+            }),
+        );
         l.info("Updated review progress comment", { owner, repo, prNumber, commentId, status });
     } catch (progressErr) {
         const reason = progressErr instanceof Error ? progressErr.message : String(progressErr);
@@ -654,13 +724,19 @@ export const processPREvent = inngest.createFunction(
             if (!usage.allowed) {
                 await step.run("Post monthly limit comment", async () => {
                     const octokit = await getPreferredOctokit(owner, repo, userId);
-                    await octokit.rest.issues.createComment({
+                    const used = Math.min(usage.used, usage.limit);
+                    await upsertOperationalComment({
+                        octokit,
                         owner,
                         repo,
-                        issue_number: prNumber,
+                        prNumber,
+                        marker: "codeturtle-quota-monthly",
                         body: [
-                            `Monthly quota reached: ${usage.used}/${usage.limit}. Please upgrade or wait for reset.`,
-                            ...(await getHumorLines("quota-limit", { used: usage.used, limit: usage.limit }, { enabled: behaviorSettings.memesEnabled, dedupeKey: humorDedupeKey })),
+                            "## 🐢 CodeTurtle review limit reached",
+                            "",
+                            `This workspace has used **${used}/${usage.limit}** reviews this month, so no review was run on this PR. No code-quality judgement was made.`,
+                            "",
+                            "The limit resets at the start of next month.",
                             UPGRADE_CTA,
                         ].join("\n"),
                     });
@@ -676,13 +752,19 @@ export const processPREvent = inngest.createFunction(
             if (!perPrUsage.allowed) {
                 await step.run("Post per-PR limit comment", async () => {
                     const octokit = await getPreferredOctokit(owner, repo, userId);
-                    await octokit.rest.issues.createComment({
+                    const used = Math.min(perPrUsage.used, perPrUsage.limit);
+                    await upsertOperationalComment({
+                        octokit,
                         owner,
                         repo,
-                        issue_number: prNumber,
+                        prNumber,
+                        marker: "codeturtle-quota-per-pr",
                         body: [
-                            `Free plan limit: ${perPrUsage.used}/${perPrUsage.limit} reviews used this month.`,
-                            ...(await getHumorLines("quota-limit", { used: perPrUsage.used, limit: perPrUsage.limit }, { enabled: behaviorSettings.memesEnabled, dedupeKey: humorDedupeKey })),
+                            "## 🐢 Per-PR review limit reached",
+                            "",
+                            `This PR has used **${used}/${perPrUsage.limit}** reviews allowed by your plan this month, so no further review was run. No code-quality judgement was made.`,
+                            "",
+                            "Push a new commit or wait for the monthly reset to request another review.",
                             UPGRADE_CTA,
                         ].join("\n"),
                     });
@@ -735,13 +817,18 @@ export const processPREvent = inngest.createFunction(
             if (!diffGuard.allowed) {
                 await step.run("Post too-many-files comment", async () => {
                     const octokit = await getPreferredOctokit(owner, repo, userId);
-                    await octokit.rest.issues.createComment({
+                    await upsertOperationalComment({
+                        octokit,
                         owner,
                         repo,
-                        issue_number: prNumber,
+                        prNumber,
+                        marker: "codeturtle-limit-files",
                         body: [
-                            `This PR touches **${diffGuard.changedFiles} files** — over the Free plan limit of ${MAX_FREE_PLAN_PR_FILES}. Split it into smaller PRs, or go unlimited.`,
-                            ...(await getHumorLines("quota-limit", undefined, { enabled: behaviorSettings.memesEnabled, dedupeKey: humorDedupeKey })),
+                            "## 🐢 PR too large for the Free plan",
+                            "",
+                            `This PR changes **${diffGuard.changedFiles} files**, above the Free plan limit of ${MAX_FREE_PLAN_PR_FILES}. No review was run, so no code-quality judgement was made.`,
+                            "",
+                            "Split the change into smaller PRs to get a review.",
                             UPGRADE_CTA,
                         ].join("\n"),
                     });
@@ -770,13 +857,18 @@ export const processPREvent = inngest.createFunction(
             if (!commitPolicy.allowed) {
                 await step.run("Post free plan commit policy comment", async () => {
                     const octokit = await getPreferredOctokit(owner, repo, userId);
-                    await octokit.rest.issues.createComment({
+                    await upsertOperationalComment({
+                        octokit,
                         owner,
                         repo,
-                        issue_number: prNumber,
+                        prNumber,
+                        marker: "codeturtle-limit-commits",
                         body: [
-                            `${commitPolicy.commits} commits exceeds free plan limit (${MAX_FREE_PLAN_PR_COMMITS}). Split PR or upgrade.`,
-                            ...(await getHumorLines("quota-limit", undefined, { enabled: behaviorSettings.memesEnabled, dedupeKey: humorDedupeKey })),
+                            "## 🐢 PR commit count above the Free plan limit",
+                            "",
+                            `This PR has **${commitPolicy.commits} commits**, above the Free plan limit of ${MAX_FREE_PLAN_PR_COMMITS}. No review was run, so no code-quality judgement was made.`,
+                            "",
+                            "Squash the commits or split the PR, then push again.",
                             UPGRADE_CTA,
                         ].join("\n"),
                     });
@@ -1112,8 +1204,8 @@ export const processPREvent = inngest.createFunction(
                     }
                 }
 
-                const hasCritical = review.issues.some((i) => i.severity === "critical");
-                const reviewEvent = hasCritical || review.overallScore < 5 ? "REQUEST_CHANGES" : "COMMENT";
+                const decision = deriveReviewDecision(review);
+                const reviewEvent = decision.event;
                 const successScenario = getSuccessHumorScenario(review.overallScore, review.issues.length);
                 let successHumorLines: string[] = [];
                 try {
@@ -1362,6 +1454,7 @@ export const processPREvent = inngest.createFunction(
             // Mark the progress comment in a terminal state so it doesn't stay "In progress" forever
             await step.run("Mark progress comment complete", async () => {
                 if (!progressCommentId) return;
+                const terminalCommentId = progressCommentId;
                 try {
                     const octokit = await getPreferredOctokit(owner, repo, userId);
                     const noFindings = review.issues.length === 0 && review.suggestions.length === 0;
@@ -1376,12 +1469,14 @@ export const processPREvent = inngest.createFunction(
                         "",
                         `<sub>Run · ${reviewRunId}</sub>`,
                     ].join("\n");
-                    await octokit.rest.issues.updateComment({
-                        owner,
-                        repo,
-                        comment_id: progressCommentId,
-                        body,
-                    });
+                    await withGithubRetry("mark-progress-complete", () =>
+                        octokit.rest.issues.updateComment({
+                            owner,
+                            repo,
+                            comment_id: terminalCommentId,
+                            body,
+                        }),
+                    );
                 } catch (err) {
                     l.warn("Failed to mark progress comment complete", {
                         owner, repo, prNumber,
@@ -1395,12 +1490,18 @@ export const processPREvent = inngest.createFunction(
                 if (!checkRunId) return;
                 try {
                     const octokit = await getPreferredOctokit(owner, repo, userId);
-                    const hasCritical = review.issues.some((i) => i.severity === "critical");
+                    const decision = deriveReviewDecision(review);
+                    const hasCritical = decision.hasCritical;
                     const conclusion: "success" | "neutral" | "action_required" | "failure" =
-                        hasCritical && review.overallScore < 5 ? "failure"
-                        : hasCritical ? "action_required"
-                        : review.overallScore >= 7 ? "success"
-                        : "neutral";
+                        review.issues.length === 0
+                            ? review.overallScore >= 7
+                                ? "success"
+                                : "neutral"
+                            : hasCritical
+                                ? "failure"
+                                : decision.event === "REQUEST_CHANGES"
+                                    ? "action_required"
+                                    : "success";
 
                     const annotations: Array<{
                         path: string;
@@ -1459,7 +1560,15 @@ export const processPREvent = inngest.createFunction(
             return review;
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : "Unknown error";
-            l.error("PR review processing failed", err as Error, { owner, repo, prNumber, userId, action });
+            const unavailable = isReviewUnavailableError(err) || /^review unavailable:/i.test(errorMessage);
+            l.error("PR review processing failed", err as Error, {
+                owner,
+                repo,
+                prNumber,
+                userId,
+                action,
+                unavailable,
+            });
 
             await step.run("Complete GitHub check run (failure)", async () => {
                 if (!checkRunId) return;
@@ -1470,11 +1579,15 @@ export const processPREvent = inngest.createFunction(
                         repo,
                         check_run_id: checkRunId,
                         status: "completed",
-                        conclusion: "failure",
+                        // Never fail a check because our provider was down: that
+                        // would block merges on infrastructure, not code quality.
+                        conclusion: unavailable ? "neutral" : "failure",
                         completed_at: new Date().toISOString(),
                         output: {
-                            title: "🐢 CodeTurtle review failed",
-                            summary: `Review could not be completed: ${errorMessage.slice(0, 500)}`,
+                            title: unavailable ? "🐢 CodeTurtle review unavailable" : "🐢 CodeTurtle review failed",
+                            summary: unavailable
+                                ? `No code-quality judgement was made. ${errorMessage.slice(0, 400)}`
+                                : `Review could not be completed: ${errorMessage.slice(0, 500)}`,
                         },
                     });
                 } catch (checkErr) {
@@ -1554,41 +1667,54 @@ export const processPREvent = inngest.createFunction(
                             ? "moonshotai/kimi-k2"
                             : rawConfiguredModel;
 
-                    const failureFooter = `\n\n👉 <a href="${settingsLink}">Adjust repository settings</a>`;
-
                     const helpText = /bad credentials|401|unauthorized/i.test(errorMessage)
-                        ? "Likely cause: GitHub authorization has expired. Please reconnect your GitHub account in settings and try again."
+                        ? "GitHub authorization has expired. Reconnect your GitHub account and retry."
                         : /decommissioned|no longer supported|unknown model|model .* not found|unsupported model/i.test(errorMessage)
-                        ? "Likely cause: the selected provider model is no longer available (list rotated). Switch model in settings (or enable Google Gemini fallback) and retry."
+                        ? "The selected provider model is no longer available. Choose another model in repository settings."
                             : /no endpoints found/i.test(errorMessage)
-                                ? "Likely cause: the selected model is currently unavailable on its provider. Please switch model in settings (recommended: Google Gemini 2.5 Flash) and retry."
+                                ? "The selected model is currently unavailable on its provider. Choose another model in repository settings."
                                 : /api key is missing|loadapikeyerror|pass it using the 'apiKey' parameter/i.test(errorMessage)
-                                    ? "Likely cause: the selected provider API key is missing or invalid. Add a valid key for this provider in settings, or switch to Google Gemini."
+                                    ? "The provider API key is missing or invalid. Add a valid key in settings, or switch to Google Gemini."
                                     : /rate limit|429/i.test(errorMessage)
-                                        ? "Likely cause: provider rate limit. Please retry in a few minutes."
-                                        : /provider returned error|ai_apicallerror/i.test(errorMessage)
-                                            ? "Likely cause: provider-side model routing failure. Please switch model in settings (recommended: Google Gemini 2.5 Flash) and retry."
-                                            : "Please retry in a few minutes. If this keeps happening, email dhananiansh01@gmail.com with this PR link.";
+                                        ? "The provider rate limit was reached. Retry in a few minutes."
+                                        : /no object generated|json parsing failed|could not parse the response|failed to parse ai response|no json found/i.test(errorMessage)
+                                            ? "The model returned output that could not be parsed. Retry, or switch to a stronger model in repository settings."
+                                            : /provider returned error|ai_apicallerror/i.test(errorMessage)
+                                                ? "The provider failed to route the request. Retry, or switch to a stronger model in repository settings."
+                                                : "The review provider was unavailable. Retry in a few minutes.";
 
-                    // Failure comments are operational messages, not the place for memes.
+                    // Operational message, never a code-quality verdict. A failed
+                    // review must not carry a score, an event, or an implied "LGTM".
                     const bodyWithoutHumor = [
-                        `Review failed: ${configuredProvider}/${configuredModel}`,
-                        helpText,
-                        failureFooter,
+                        "## 🐢 CodeTurtle could not complete this review",
+                        "",
+                        "**No code-quality score was generated and no review decision was made.**",
+                        "",
+                        `- **Provider / model** · \`${configuredProvider}/${configuredModel}\``,
+                        `- **Reason** · ${helpText}`,
+                        "",
+                        `[Adjust repository settings](${settingsLink})`,
+                        "",
+                        "Retry by pushing a new commit, or email **dhananiansh01@gmail.com** with this PR link if it keeps happening.",
                     ].join("\n");
 
                     if (progressCommentId) {
-                        await octokit.rest.issues.updateComment({
-                            owner,
-                            repo,
-                            comment_id: progressCommentId,
-                            body: bodyWithoutHumor,
-                        });
+                        const failureCommentId = progressCommentId;
+                        await withGithubRetry("update-failure-comment", () =>
+                            octokit.rest.issues.updateComment({
+                                owner,
+                                repo,
+                                comment_id: failureCommentId,
+                                body: bodyWithoutHumor,
+                            }),
+                        );
                     } else {
-                        await octokit.rest.issues.createComment({
+                        await upsertOperationalComment({
+                            octokit,
                             owner,
                             repo,
-                            issue_number: prNumber,
+                            prNumber,
+                            marker: "codeturtle-review-unavailable",
                             body: bodyWithoutHumor,
                         });
                     }
@@ -1608,7 +1734,9 @@ export const processPREvent = inngest.createFunction(
                         prNumber,
                         userId,
                         commentId: progressCommentId,
-                        status: `Status: Review failed - ${errorMessage.slice(0, 120)}`,
+                        status: unavailable
+                            ? "Status: Review unavailable - no code-quality judgement was made."
+                            : `Status: Review failed - ${errorMessage.slice(0, 120)}`,
                         behaviorSettings,
                         humorDedupeKey,
                         progressGifUrl,

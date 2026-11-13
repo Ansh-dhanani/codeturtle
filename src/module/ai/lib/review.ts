@@ -111,11 +111,12 @@ const JudgeReviewSchema = z.object({
   diagram: z.string().optional(),
 });
 
-// --- Finding schema v2 (opt-in via CODETURTLE_FINDING_SCHEMA=v2) ---
+// --- Finding schema v2 (default) ---
 // Every finding must prove itself: confidence, category, trigger/impact, and
 // evidence strings that must occur in the reviewed context. Findings without
-// evidence are dropped in sanitizeReviewOutput.
-const FINDING_V2 = ["1", "true", "on", "yes", "v2"].includes(
+// evidence are dropped in sanitizeReviewOutput. Set CODETURTLE_FINDING_SCHEMA=v1
+// only to opt out during an incident.
+const FINDING_V2 = !["0", "false", "off", "no", "v1"].includes(
   (process.env.CODETURTLE_FINDING_SCHEMA || "").toLowerCase(),
 );
 
@@ -148,6 +149,18 @@ const CodeReviewV2Schema = z.object({
   diagram: diagramField,
 });
 
+// v2 variant of the judge schema: keeps the evidence contract intact instead of
+// collapsing severities through the legacy enum.
+const JudgeReviewV2Schema = z.object({
+  summary: z.string().catch(""),
+  overallScore: z.number().min(0).max(10).catch(5),
+  issues: z.array(ReviewIssueV2Schema).catch([]),
+  suggestions: z.array(ReviewSuggestionSchema).catch([]),
+  positives: z.array(z.string()).catch([]),
+  architectureNotes: z.string().optional(),
+  diagram: z.string().optional(),
+});
+
 const V2_SYSTEM_ADDENDUM = `CRITICAL — finding evidence contract (schema v2): every issue MUST include ALL of the following:
 - "severity": one of "critical" | "high" | "medium" | "low". Never invent a critical.
 - "category": one of "logic" | "runtime" | "security" | "data-integrity" | "api-contract" | "concurrency" | "performance" | "error-handling" | "testing" | "maintainability"
@@ -158,21 +171,24 @@ const V2_SYSTEM_ADDENDUM = `CRITICAL — finding evidence contract (schema v2): 
 If you cannot produce trigger + impact + evidence for an issue, do NOT include that issue. An empty "issues" array is a valid, good answer.`;
 
 /**
- * Last-resort review synthesized when every provider attempt failed.
- * Keeps the pipeline alive - the user still gets an informative comment
- * explaining what happened instead of a bare "Review failed" with no summary.
+ * Raised when every configured provider/model failed. This is an operational
+ * failure, NOT a code-quality verdict. Callers must render it as an
+ * "unavailable" state and must never publish a score or request changes.
  */
-function buildOfflineReview(owner: string, repo: string, prNumber: number, reason: string): CodeReview {
-  const brief = reason.trim().replace(/\s+/g, " ").slice(0, 280);
-  return {
-    summary: `Automated review could not be completed right now (every configured provider failed - ${brief}). No findings were generated; please retry or check the PR settings. No code issues were verified.`,
-    overallScore: 0,
-    issues: [],
-    suggestions: [],
-    positives: [],
-    architectureNotes: undefined,
-    diagram: undefined,
-  };
+export class ReviewUnavailableError extends Error {
+  readonly reason: string;
+
+  constructor(reason: string) {
+    const brief = reason.trim().replace(/\s+/g, " ").slice(0, 500);
+    super(`Review unavailable: ${brief}`);
+    this.name = "ReviewUnavailableError";
+    this.reason = brief;
+  }
+}
+
+/** True when an error means "we could not review", not "the code is bad". */
+export function isReviewUnavailableError(error: unknown): error is ReviewUnavailableError {
+  return error instanceof ReviewUnavailableError;
 }
 
 type CodeReview = z.infer<typeof CodeReviewSchema>;
@@ -561,6 +577,147 @@ function detectIssueFamily(value: string): string | null {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Deterministic review post-processing
+// ---------------------------------------------------------------------------
+
+const NON_PRODUCTION_FILE_PATTERN =
+  /(^|\/)(__tests__|__mocks__|__fixtures__|fixtures?|test|tests|spec|specs|e2e|bench|benchmarks|examples?|samples?)(\/|$)|\.(test|spec|stories|bench)\.[cm]?[jt]sx?$/i;
+
+const PROBE_FILE_PATTERN = /(^|\/)(pipeline[-_]?probe|probe|carrier|smoke[-_]?test|verify[-_]?deploy)[^/]*\.[cm]?[jt]sx?$/i;
+
+export function isNonProductionFile(file: string): boolean {
+  return NON_PRODUCTION_FILE_PATTERN.test(file);
+}
+
+export function isProbeFile(file: string): boolean {
+  return PROBE_FILE_PATTERN.test(file);
+}
+
+/** Classify the PR's stated purpose so the reviewer does not judge probes as production code. */
+export function classifyPrIntent(prTitle: string, prBody: string): {
+  kind: "pipeline-probe" | "test-only" | "generated" | "docs" | "dependency" | "production";
+  hint: string;
+} {
+  const text = `${prTitle}\n${prBody}`.toLowerCase();
+  if (/pipeline (probe|carrier|verification)|deploy (probe|verification)|intentionally trivial|exists only so the bot runs|smoke test/.test(text)) {
+    return {
+      kind: "pipeline-probe",
+      hint:
+        "This PR is an intentional pipeline/deployment probe. Do NOT treat unused exports, unused files, or lack of app wiring as defects. Only report changes that would break the probe itself or the repository at runtime.",
+    };
+  }
+  if (/(^|\b)(test[- ]only|tests? only|fixtures? only|test data|test harness|adds? tests?|test coverage)\b/.test(text)) {
+    return {
+      kind: "test-only",
+      hint:
+        "This PR is test-only. Report genuine bugs in test logic, but do not flag test files as unused, dead code, or non-production wiring.",
+    };
+  }
+  if (/generated (code|modules|files)|codegen|scaffold/.test(text)) {
+    return {
+      kind: "generated",
+      hint:
+        "This PR contains generated code. Prioritise generator/template defects and cross-cutting duplication over per-file style issues in generated output.",
+    };
+  }
+  if (/(^|\b)(docs?|documentation|readme|typo)\b/.test(text)) {
+    return {
+      kind: "docs",
+      hint: "This PR is documentation-focused. Do not report code-quality or runtime defects that are not part of the changed text.",
+    };
+  }
+  if (/bump|dependenc|lockfile|upgrade (package|dependency)/.test(text)) {
+    return {
+      kind: "dependency",
+      hint: "This PR updates dependencies. Focus on breaking API changes and lockfile inconsistency, not unrelated style nits.",
+    };
+  }
+  return { kind: "production", hint: "" };
+}
+
+/** A suggested patch that does not actually change anything is noise, not a finding. */
+export function isNoOpCodeChange(before?: string, after?: string): boolean {
+  if (before == null || after == null) return false;
+  const normalize = (value: string) =>
+    value.replace(/\r\n/g, "\n").replace(/[ \t]+$/gm, "").replace(/^\s*\n/, "").replace(/\s+$/, "");
+  return normalize(before) === normalize(after);
+}
+
+const DEFECT_CLAIM_PATTERN =
+  /(critical|severe|vulnerab|security (issue|regression|bug|hole)|data breach|unauthorized|syntax error|will not start|fails? to (start|compile|build)|broken|data loss|sql injection|xss|exposed? (token|secret|credential))/i;
+
+const CLEAN_CLAIM_PATTERN =
+  /(no (critical|blocking|major|actionable|significant|security|real)?\s*(issues|findings|problems|vulnerabilities)|looks good|ready to merge|lgtm|no issues (found|identified|were found))/i;
+
+/**
+ * Keep the narrative and the structured findings in agreement. A summary must
+ * never assert a defect that was not published as a structured issue, and must
+ * never claim the PR is clean when findings exist.
+ */
+export function reconcileSummaryWithFindings(
+  summary: string,
+  issues: CodeReview["issues"],
+  suggestions: CodeReview["suggestions"],
+): string {
+  const trimmed = summary.trim();
+  const claimsDefect = DEFECT_CLAIM_PATTERN.test(trimmed);
+  const claimsClean = CLEAN_CLAIM_PATTERN.test(trimmed);
+
+  if (issues.length === 0 && claimsDefect && !claimsClean) {
+    return [
+      "No validated findings were produced for the changed code.",
+      "",
+      suggestions.length > 0
+        ? `${suggestions.length} non-blocking suggestion${suggestions.length === 1 ? "" : "s"} ${suggestions.length === 1 ? "is" : "are"} listed below.`
+        : "The automated reviewer did not identify any defect it could ground in this pull request's diff.",
+      "If you expected findings, retry with a stronger review model.",
+    ].join("\n");
+  }
+
+  if (issues.length > 0 && claimsClean) {
+    const critical = issues.filter((issue) => issue.severity === "critical").length;
+    const warnings = issues.length - critical;
+    return [
+      trimmed,
+      "",
+      `Validated findings: ${issues.length} (critical: ${critical}, warning: ${warnings}). See the Issues section for file and line details.`,
+    ].join("\n");
+  }
+
+  return trimmed;
+}
+
+/** Single source of truth for the GitHub review event. */
+export function deriveReviewDecision(review: {
+  issues: Array<{ severity: string }>;
+  overallScore: number;
+}): { event: "REQUEST_CHANGES" | "COMMENT"; hasCritical: boolean; warningCount: number } {
+  const hasCritical = review.issues.some((issue) => issue.severity === "critical");
+  const warningCount = review.issues.filter((issue) => issue.severity === "warning").length;
+  const blocking = hasCritical || (review.issues.length > 0 && review.overallScore < 5);
+  return { event: blocking ? "REQUEST_CHANGES" : "COMMENT", hasCritical, warningCount };
+}
+
+/**
+ * A completed review with no findings must never carry a low score, and a
+ * critical finding must never sit next to an 8/10. Clamp deterministically so
+ * score, findings, and event cannot contradict each other.
+ */
+export function clampScoreToFindings(score: number, issues: CodeReview["issues"]): number {
+  const hasCritical = issues.some((issue) => issue.severity === "critical");
+  if (issues.length === 0) return Math.max(score, 7);
+  if (hasCritical) return Math.min(score, 4);
+  if (issues.some((issue) => issue.severity === "warning")) return Math.min(score, 6);
+  return score;
+}
+
+function isUnusedOrPlaceholderFinding(title: string, description: string): boolean {
+  return /(unused|never imported|not imported|dead code|placeholder|no functionality|empty file|non-standard file name|missing newline|no newline at end of file)/i.test(
+    `${title} ${description}`,
+  );
+}
+
 function sanitizeReviewOutput(
   review: CodeReview,
   params: {
@@ -568,12 +725,16 @@ function sanitizeReviewOutput(
     changedFiles: Set<string>;
     reviewModes: RepoReviewStyle[];
     contextText?: string;
+    prTitle?: string;
+    prBody?: string;
   },
 ): CodeReview {
-  const { diffContext, changedFiles, reviewModes, contextText } = params;
+  const { diffContext, changedFiles, reviewModes, contextText, prTitle = "", prBody = "" } = params;
   const { maxIssues, maxSuggestions, maxPositives } = getReviewCaps(reviewModes);
+  const prIntent = classifyPrIntent(prTitle, prBody);
+  const probeLikePr = prIntent.kind === "pipeline-probe" || prIntent.kind === "test-only";
 
-  const cleanedSummary = review.summary.trim().slice(0, 2500) || "Review generated successfully.";
+  const cleanedSummary = review.summary.trim().slice(0, 2500) || "No summary was produced for this review.";
   const boundedScore = Math.max(0, Math.min(10, Math.round(review.overallScore)));
 
   // Deterministic verification (schema v2 / evidence-bearing findings):
@@ -607,16 +768,26 @@ function sanitizeReviewOutput(
       const file = normalizeFilePath(issue.file || "");
       if (!file || !changedFiles.has(file)) return null;
       if (!passesVerification(issue as unknown as Record<string, unknown>)) return null;
+      // Pipeline probes and test fixtures should not be judged as production
+      // code. "Unused export" noise is the main false positive on those PRs.
+      if ((probeLikePr || isNonProductionFile(file) || isProbeFile(file)) && isUnusedOrPlaceholderFinding(issue.title, issue.description)) {
+        return null;
+      }
       const line =
         typeof issue.line === "number" && Number.isFinite(issue.line) && issue.line > 0
           ? Math.round(issue.line)
           : undefined;
 
+      const v2 = issue as unknown as { trigger?: string; impact?: string };
+      const description =
+        issue.description.trim() ||
+        [v2.trigger, v2.impact].filter((part): part is string => Boolean(part?.trim())).join(" ").trim();
+
       return {
         ...issue,
         severity: downgradeSeverity(String(issue.severity || "warning")),
         title: issue.title.trim().slice(0, 240),
-        description: issue.description.trim().slice(0, 1600),
+        description: description.slice(0, 1600),
         suggestion: issue.suggestion.trim().slice(0, 1200),
         file,
         line: isNearChangedLine(diffContext, file, line) ? line : undefined,
@@ -665,14 +836,22 @@ function sanitizeReviewOutput(
     .map((suggestion) => {
       const file = normalizeFilePath(suggestion.file || "");
       if (!file || !changedFiles.has(file)) return null;
+      if ((probeLikePr || isNonProductionFile(file) || isProbeFile(file)) && isUnusedOrPlaceholderFinding(suggestion.title, suggestion.description)) {
+        return null;
+      }
+
+      // A patch whose before/after are identical is not a suggested change.
+      // Keep the explanation, drop the bogus diff.
+      const noOpPatch = isNoOpCodeChange(suggestion.codeBefore, suggestion.codeAfter);
+      const usablePatch = Boolean(suggestion.codeAfter?.trim()) && !noOpPatch;
 
       return {
         ...suggestion,
         file,
         title: suggestion.title.trim().slice(0, 220),
         description: suggestion.description.trim().slice(0, 1200),
-        codeBefore: suggestion.codeBefore?.slice(0, 4000),
-        codeAfter: suggestion.codeAfter?.slice(0, 4000),
+        codeBefore: usablePatch ? suggestion.codeBefore?.slice(0, 4000) : undefined,
+        codeAfter: usablePatch ? suggestion.codeAfter?.slice(0, 4000) : undefined,
       };
     })
     .filter((suggestion): suggestion is NonNullable<typeof suggestion> => Boolean(suggestion))
@@ -689,6 +868,12 @@ function sanitizeReviewOutput(
   const positives = review.positives
     .map((positive) => positive.trim())
     .filter((positive) => positive.length > 0)
+    .filter(
+      (positive) =>
+        !/\b(main[- ]character|gremlin|drama|vibes|chef'?s kiss|looks good overall|solid work|nice job|great job|well done|keep it up)\b/i.test(
+          positive,
+        ),
+    )
     .filter((positive, index, all) => all.findIndex((candidate) => normalizeTextForKey(candidate) === normalizeTextForKey(positive)) === index)
     .slice(0, maxPositives);
 
@@ -705,9 +890,12 @@ function sanitizeReviewOutput(
 
   const diagram = review.diagram?.trim();
 
+  const finalScore = clampScoreToFindings(boundedScore, issues);
+  const finalSummary = reconcileSummaryWithFindings(cleanedSummary, issues, suggestions);
+
   return {
-    summary: cleanedSummary,
-    overallScore: boundedScore,
+    summary: finalSummary,
+    overallScore: finalScore,
     issues,
     suggestions,
     positives,
@@ -738,7 +926,7 @@ async function judgeReviewIfPossible(
 (b) actionable by the author,
 (c) not pure style nitpicks (unless the repository explicitly asked for style review).
 
-Remove any issue/suggestion that is generic, vague, speculative, duplicates another finding, or cannot be tied to a specific location in the diff. Do NOT invent new findings. Do NOT add issues that were not in the original review. Keep the "summary" and "overallScore" fields (you may keep them unchanged). "positives" should only keep specific, grounded positives. Empty arrays are fine.
+Remove any issue/suggestion that is generic, vague, speculative, duplicates another finding, or cannot be tied to a specific location in the diff. Do NOT invent new findings. Do NOT add issues that were not in the original review. When you keep an issue, preserve its "evidence", "trigger", "impact", "confidence", and "category" fields verbatim. Keep the "summary" and "overallScore" fields (you may keep them unchanged). "positives" should only keep specific, grounded positives. Empty arrays are fine.
 
 STRICT VERIFICATION RULE: A finding may only survive if its claim is verifiable from the context above. If you cannot point to the exact code in the diff/context that proves the finding (or directly refutes an existing guard/check), DROP the finding. "Plausible" is not "verified". If nothing survives verification, return zero issues - an empty, honest review is the correct outcome.
 
@@ -764,7 +952,7 @@ Return ONLY the updated JSON object.`;
           system:
             "You are a strict, impartial code-review judge. You filter false positives and weak findings from a generated code review. You never invent new findings. You always output valid JSON matching the schema.",
           prompt: judgePrompt,
-          schema: JudgeReviewSchema,
+          schema: FINDING_V2 ? JudgeReviewV2Schema : JudgeReviewSchema,
           maxOutputTokens: REVIEW_MAX_TOKENS,
         }),
       60_000,
@@ -772,15 +960,57 @@ Return ONLY the updated JSON object.`;
     );
 
     const score = Number(object.overallScore);
-    const judged: CodeReview = {
+    let judged: CodeReview = {
       summary: object.summary?.trim() ? object.summary.trim() : review.summary,
       overallScore: Number.isFinite(score) ? Math.max(0, Math.min(10, score)) : review.overallScore,
-      issues: object.issues ?? [],
+      issues: (object.issues ?? []) as unknown as CodeReview["issues"],
       suggestions: object.suggestions ?? [],
       positives: (object.positives ?? []).map((p) => p.trim()).filter((p) => p.length > 0),
       architectureNotes: object.architectureNotes ?? review.architectureNotes,
       diagram: object.diagram ?? review.diagram,
     };
+
+    // The judge often preserves the finding but drops the v2 evidence fields.
+    // Re-attach the original proof so deterministic verification still passes.
+    if (FINDING_V2) {
+      judged.issues = judged.issues.map((judgedIssue) => {
+        const original =
+          review.issues.find(
+            (issue) =>
+              normalizeFilePath(issue.file) === normalizeFilePath(judgedIssue.file) &&
+              normalizeTextForKey(issue.title) === normalizeTextForKey(judgedIssue.title),
+          ) ?? review.issues.find((issue) => normalizeFilePath(issue.file) === normalizeFilePath(judgedIssue.file));
+        if (!original) return judgedIssue;
+        const source = original as unknown as Record<string, unknown>;
+        const target = judgedIssue as unknown as Record<string, unknown>;
+        for (const key of ["confidence", "category", "trigger", "impact", "evidence"]) {
+          const current = target[key];
+          const missing =
+            current == null ||
+            current === "" ||
+            (Array.isArray(current) && current.length === 0);
+          if (missing && source[key] != null) target[key] = source[key];
+        }
+        return judgedIssue;
+      });
+    }
+
+    // Safety net: the judge must never erase every finding that already passed
+    // deterministic verification. That is how real security regressions turned
+    // into "0 issues" reviews. Keep the original findings and log loudly.
+    if (review.issues.length > 0 && judged.issues.length === 0) {
+      logger.warn("Judge removed every verified finding; retaining pre-judge findings", {
+        owner: context.owner,
+        repo: context.repo,
+        prNumber: context.prNumber,
+        originalIssues: review.issues.length,
+      });
+      judged = {
+        ...judged,
+        issues: review.issues,
+        summary: judged.summary || review.summary,
+      };
+    }
 
     logger.info("Judge pass completed", {
       owner: context.owner,
@@ -884,10 +1114,34 @@ Analyze the code for:
 6. Edge cases (empty states, boundary inputs, overflow, timezones)
 7. Type safety and best practices for the language/framework in use
 
+GROUNDING RULES (non-negotiable):
+- Every finding MUST point at a file and line that is part of THIS pull request's diff.
+- Do NOT report pre-existing repository problems unless the diff introduces them or makes them exploitable.
+- Do NOT claim a file, function, or endpoint is broken unless the changed code proves it.
+- If you cannot cite the exact changed line that causes the problem, do not report it.
+- An empty "issues" array is a valid, good answer. Never pad a review to look thorough.
+
+PR INTENT RULES:
+- Read the PR title and description. Judge the change by its stated purpose.
+- Test files, fixtures, generated code, documentation, and deliberate CI/deployment probes are not production code. Do not flag them as "unused", "dead code", or "not wired into the app" unless that breaks their stated purpose.
+- If the PR is a probe or test-only change, only report defects that would break the probe/test itself.
+
+SEVERITY RUBRIC (judge impact, not keywords):
+- critical: confirmed credential/secret exposure, exploitable auth bypass, remote code execution, data loss, or a defect that breaks the main path in production.
+- warning: a real correctness, security, reliability, or API-contract defect with credible but limited impact.
+- info: style, naming, maintainability, or optional improvement.
+Shared mutable state, currency rounding, and missing tests are normally warning/info - not critical. A hardcoded secret or an exposed auth token is critical when it is usable.
+
+TONE:
+- Write like a senior engineer: factual, concise, and specific.
+- No memes, jokes, anime references, "main-character energy", or generic praise.
+- Positives must cite something concrete in the diff, not vague encouragement.
+
 Be specific, actionable, and constructive:
 - Reference exact file paths and line numbers whenever possible.
 - For every issue, supply a concrete, minimal suggested fix. If a fix changes code, include REAL code snippets in the suggestion (not pseudocode).
 - For "Suggestions", you MUST include working codeBefore and codeAfter (the exact snippet to replace and the exact replacement) whenever the change is mechanical. Only omit codeBefore/codeAfter when the suggestion is purely architectural/verbal and cannot be expressed as code.
+- A suggested patch must actually differ from the original code. Never return an identical before/after pair.
 - Do NOT invent APIs, files, or functions that don't exist in the repository context. If unsure, say so in the issue description.
 - Prefer 2-5 high-impact, correct findings over a long list of nitpicks. Empty arrays are fine - an empty review is better than a padded one.
 
@@ -896,7 +1150,8 @@ Score guidelines:
 - 7-8: Good, minor improvements needed
 - 5-6: Acceptable, address the listed issues before merging
 - 3-4: Needs significant work; block merge until issues are resolved
-- 1-2: Major problems, rewrite needed`;
+- 1-2: Major problems, rewrite needed
+The score MUST agree with the findings: a critical finding caps the score at 4, a warning caps it at 6, and a review with zero findings must be at least 7.`;
 
 const JSON_OUTPUT_INSTRUCTIONS = `You must output a single strictly valid JSON object that matches the requested schema EXACTLY!
 Do NOT wrap the JSON in markdown code blocks. Do NOT output any chain-of-thought, commentary, or text outside the JSON.
@@ -1333,6 +1588,15 @@ Base: ${prBaseRef} → Head: ${prHeadRef}${prCommits != null ? `\nCommits: ${prC
 ${prBody ? `\nDescription:\n${prBody}` : ""}`
     : "";
 
+  const prIntent = classifyPrIntent(prTitle, prBody);
+  const prIntentBlock =
+    prIntent.kind !== "production"
+      ? `## PR Intent Classification
+Kind: ${prIntent.kind}
+${prIntent.hint}
+`
+      : "";
+
   const reviewContext = buildReviewContext({
     diff,
     files,
@@ -1359,6 +1623,7 @@ ${contextChunks.length > 0 ? `
 ${contextChunks.join("\n\n---\n\n")}
 ` : ""}
 ${prContextBlock}
+${prIntentBlock}
 ${excludedFilesBlock}
 ${reviewContext.statBlock}
 ${staticHintsBlock}
@@ -1864,13 +2129,15 @@ Provide a structured review with specific issues, suggestions, and an overall sc
         logger.info("Fell back to Google after OpenAI model failure", { owner, repo, prNumber });
       }
     } else {
-      object = buildOfflineReview(owner, repo, prNumber, errorMessage);
+      throw new ReviewUnavailableError(errorMessage);
     }
     }
     } catch (fallbackErr) {
-      // All recovery attempts themselves threw - synthesize the guaranteed review
+      if (fallbackErr instanceof ReviewUnavailableError) throw fallbackErr;
+      // Every recovery attempt itself threw. This is an operational failure,
+      // not a code-quality verdict - never synthesize a 0/10 review.
       const reason = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
-      logger.warn("All provider fallbacks exhausted; synthesizing best-effort review", {
+      logger.error("All provider fallbacks exhausted; review unavailable", fallbackErr as Error, {
         owner,
         repo,
         prNumber,
@@ -1878,9 +2145,7 @@ Provide a structured review with specific issues, suggestions, and an overall sc
         selectedModel: reviewerModel,
         reason,
       });
-      object = buildOfflineReview(owner, repo, prNumber, reason);
-      reviewerProvider = "internal";
-      reviewerModel = "offline-fallback";
+      throw new ReviewUnavailableError(reason);
     }
   }
 
@@ -1889,6 +2154,8 @@ Provide a structured review with specific issues, suggestions, and an overall sc
     changedFiles: changedFilesSet.size > 0 ? changedFilesSet : diffContext.changedFiles,
     reviewModes,
     contextText: reviewContext.diffForPrompt,
+    prTitle,
+    prBody,
   });
 
   // Conditional specialist passes (security / data-integrity / concurrency) run
@@ -1919,6 +2186,8 @@ Provide a structured review with specific issues, suggestions, and an overall sc
           changedFiles: changedFilesSet.size > 0 ? changedFilesSet : diffContext.changedFiles,
           reviewModes,
           contextText: reviewContext.diffForPrompt,
+          prTitle,
+          prBody,
         },
       );
       logger.info("Specialist findings merged", { owner, repo, prNumber, merged: normalizedReview.issues.length });
@@ -1937,6 +2206,8 @@ Provide a structured review with specific issues, suggestions, and an overall sc
     changedFiles: changedFilesSet.size > 0 ? changedFilesSet : diffContext.changedFiles,
     reviewModes,
     contextText: reviewContext.diffForPrompt,
+    prTitle,
+    prBody,
   };
   const judgedReview = await judgeReviewIfPossible(normalizedReview, {
     owner,

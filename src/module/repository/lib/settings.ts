@@ -34,7 +34,8 @@ export function normalizeReviewIgnoreGlobs(value?: string | string[] | null): st
 export const DEFAULT_REPO_BEHAVIOR_SETTINGS: RepoBehaviorSettings = {
   reviewModes: ["balanced", "diagram"],
   reviewStyle: "balanced",
-  memesEnabled: true,
+  // Technical reviews default to a professional voice. Users can opt into memes.
+  memesEnabled: false,
   customPrompt: null,
   reviewMode: "auto",
 };

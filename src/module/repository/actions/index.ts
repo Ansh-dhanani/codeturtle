@@ -68,7 +68,7 @@ export const fetchUserRepositories = async (page: number = 1, perPage: number = 
                     connectedRepositoryId: connected?.connectedRepositoryId || null,
                     reviewStyle: connected?.reviewStyle || "balanced",
                     reviewModes: connected?.reviewModes || ["balanced"],
-                    memesEnabled: connected?.memesEnabled ?? true,
+                    memesEnabled: connected?.memesEnabled ?? false,
                     customPrompt: connected?.customPrompt || null,
                     reviewIgnoreGlobs: connected?.reviewIgnoreGlobs || null,
                     aiProvider: connected?.aiProvider || null,
@@ -111,6 +111,7 @@ export const connectRepository = async (owner: string, repo: string, githubId: n
                 userId: session.user.id,
                 hookId: webhook.id ? BigInt(webhook.id) : undefined,
                 hookSecret: (webhook as { secret?: string }).secret || undefined,
+                memesEnabled: false,
             },
         });
 
