@@ -218,10 +218,21 @@ async function updateProgressComment(params: {
         });
         l.info("Updated review progress comment", { owner, repo, prNumber, commentId, status });
     } catch (progressErr) {
-        l.warn("Failed to update progress comment; continuing without it", {
-            owner, repo, prNumber, commentId, status,
-            error: progressErr instanceof Error ? progressErr.message : "Unknown error",
+        const reason = progressErr instanceof Error ? progressErr.message : String(progressErr);
+        l.error("Failed to update progress comment - status will remain stale", progressErr as Error, {
+            owner, repo, prNumber, commentId, status, reason,
         });
+        try {
+            const fallback = await getPreferredOctokit(owner, repo, userId);
+            await fallback.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: commentId,
+                body: `<!-- codeturtle-review-progress -->\n## 🐢 CodeTurtle is reviewing this PR\n\n**Status** · ⚠️ Progress update failed: ${reason.slice(0, 200).replace(/\\n/g, " ")}\n\n<sub>Run · ${runId ?? ""}</sub>`,
+            });
+        } catch (fallbackErr) {
+            l.error("Fallback marker write also failed", fallbackErr as Error, { owner, repo, prNumber, commentId });
+        }
     }
 }
 
