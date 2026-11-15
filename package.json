@@ -2,6 +2,7 @@
   "name": "codeturtle",
   "version": "0.1.0",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "dev": "next dev --webpack",
     "build": "prisma generate && next build --webpack",

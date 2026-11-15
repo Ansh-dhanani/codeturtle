@@ -192,3 +192,10 @@ Special thanks to Tyler Long for helping maintain the project.
 </a>
 
 <br/>
+
+## License
+
+CodeTurtle is available only to individual people for personal, private,
+non-commercial learning and experimentation. Commercial, business,
+organizational, enterprise, production, hosted, and revenue-generating use is
+not permitted. See [LICENSE](./LICENSE) for the complete terms.
