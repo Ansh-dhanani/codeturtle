@@ -1536,7 +1536,18 @@ export const processPREvent = inngest.createFunction(
 
             // Complete the GitHub check run with conclusion derived from the review.
             await step.run("Complete GitHub check run", async () => {
-                if (!checkRunId) return;
+                if (!checkRunId) {
+                    try {
+                        const octokit = await getPreferredOctokit(owner, repo, userId);
+                        await octokit.rest.issues.createComment({
+                            owner, repo, issue_number: prNumber,
+                            body: "<!-- codeturtle-check-debug -->Check completion skipped: checkRunId is null",
+                        });
+                    } catch {
+                        // diagnostic only
+                    }
+                    return;
+                }
                 try {
                     const octokit = await getPreferredOctokit(owner, repo, userId);
                     const decision = deriveReviewDecision(review);
@@ -1623,10 +1634,20 @@ export const processPREvent = inngest.createFunction(
                     }
                     if (!completed) throw new Error("Could not complete GitHub check run after payload degradation");
                 } catch (err) {
+                    const reason = err instanceof Error ? err.message : "Unknown error";
                     l.warn("Failed to complete GitHub check run", {
                         owner, repo, prNumber,
-                        error: err instanceof Error ? err.message : "Unknown error",
+                        error: reason,
                     });
+                    try {
+                        const octokit = await getPreferredOctokit(owner, repo, userId);
+                        await octokit.rest.issues.createComment({
+                            owner, repo, issue_number: prNumber,
+                            body: `<!-- codeturtle-check-debug -->Check completion failed: ${reason.slice(0, 400)}`,
+                        });
+                    } catch {
+                        // diagnostic only
+                    }
                 }
             });
 
