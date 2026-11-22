@@ -84,8 +84,16 @@ export function extractStaticHints(diff: string): StaticHint[] {
     }
     if (rawLine.startsWith("+++") || rawLine.startsWith("---")) continue;
 
+    // Hunk headers carry the new-file start line. Without this, hint line
+    // numbers drift on every hunk after the first and deterministic
+    // isNearChangedLine checks then strip the model's finding.
+    const hunkHeader = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(rawLine);
+    if (hunkHeader) {
+      addedLineNo = Number(hunkHeader[1]);
+      continue;
+    }
+
     if (rawLine.startsWith("+")) {
-      addedLineNo += 1;
       const line = rawLine.slice(1);
       for (const rule of RULES) {
         if (hints.length >= MAX_HINTS) return hints;
@@ -94,6 +102,7 @@ export function extractStaticHints(diff: string): StaticHint[] {
           hints.push({ pattern: rule.id, file: currentFile, line: addedLineNo, note: rule.note });
         }
       }
+      addedLineNo += 1;
     } else if (!rawLine.startsWith("-")) {
       addedLineNo += 1;
     }
@@ -108,6 +117,27 @@ export function formatStaticHintsForPrompt(hints: StaticHint[]): string {
   return [
     "",
     "Deterministic static-scan hints (VERIFY each against the code before reporting; many are benign):",
+    ...lines,
+  ].join("\n");
+}
+
+/**
+ * Format static hints as structured candidates that the model must verify or
+ * explicitly dismiss. Unlike formatStaticHintsForPrompt (advisory), this format
+ * requires the model to address each candidate in its review.
+ */
+export function formatStaticHintsAsCandidates(hints: StaticHint[]): string {
+  if (hints.length === 0) return "";
+  const lines = hints.map(
+    (hint, i) =>
+      `${i + 1}. ${hint.file}:L${hint.line ?? "?"} — ${hint.note} (pattern: ${hint.pattern})`,
+  );
+  return [
+    "",
+    "## Deterministic candidates (MUST verify or dismiss each):",
+    "The following patterns were detected deterministically. For EACH candidate:",
+    "- If it is a real issue, report it with evidence.",
+    "- If it is benign, explain why in one sentence (do not silently ignore).",
     ...lines,
   ].join("\n");
 }

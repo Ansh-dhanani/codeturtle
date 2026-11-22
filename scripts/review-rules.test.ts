@@ -21,7 +21,9 @@ const {
   clampScoreToFindings,
   deriveReviewDecision,
   stripEmojis,
+  applySeverityPolicy,
 } = await import("../src/module/ai/lib/review");
+const { extractStaticHints, formatStaticHintsAsCandidates } = await import("../src/module/ai/lib/static-hints");
 
 let passed = 0;
 let failed = 0;
@@ -135,6 +137,86 @@ check(
 check(
   "normal ASCII text is preserved untouched",
   stripEmojis("No issues found in src/index.ts") === "No issues found in src/index.ts",
+);
+
+// --- Severity policy -------------------------------------------------------
+check(
+  "hardcoded secret upgrades to critical",
+  applySeverityPolicy({ title: "Hardcoded credential", description: "STRIPE_SECRET is hardcoded", evidence: ["STRIPE_SECRET = sk_live_..."], severity: "warning" }).severity === "critical",
+);
+check(
+  "auth guard removal upgrades to critical",
+  applySeverityPolicy({ title: "Removed auth guard", description: "requireAdmin no longer checks role", evidence: ["return;"], severity: "info" }).severity === "critical",
+);
+check(
+  "SQL injection upgrades to critical",
+  applySeverityPolicy({ title: "SQL injection", description: "SQL string built with concatenation", evidence: ["SELECT * FROM users WHERE id = '${id}'"], severity: "warning" }).severity === "critical",
+);
+check(
+  "path traversal upgrades to critical",
+  applySeverityPolicy({ title: "Path traversal", description: "Path traversal vulnerability", evidence: ["path.join(base, userId)"], severity: "warning" }).severity === "critical",
+);
+check(
+  "weak randomness in security context upgrades to critical",
+  applySeverityPolicy({ title: "Weak random", description: "Math.random in session token", evidence: ["Math.random()"], severity: "info" }).severity === "critical",
+);
+check(
+  "unsigned JWT upgrades to critical",
+  applySeverityPolicy({ title: "Unsigned JWT", description: "JWT uses alg none", evidence: ["alg: 'none'"], severity: "warning" }).severity === "critical",
+);
+check(
+  "non-security finding keeps model severity",
+  applySeverityPolicy({ title: "Naming", description: "Variable should be renamed", evidence: [], severity: "info" }).severity === "info",
+);
+check(
+  "critical stays critical",
+  applySeverityPolicy({ title: "Hardcoded secret", description: "password hardcoded", evidence: ["password = 'x'"], severity: "critical" }).severity === "critical",
+);
+
+// --- Static hint candidates ------------------------------------------------
+const candidateHints = extractStaticHints([
+  "diff --git a/src/auth/login.ts b/src/auth/login.ts",
+  "--- a/src/auth/login.ts",
+  "+++ b/src/auth/login.ts",
+  "@@ -1,2 +1,3 @@",
+  "+const password = \"hunter2\";",
+  "+eval(userInput);",
+].join("\n"));
+const candidates = formatStaticHintsAsCandidates(candidateHints);
+check(
+  "candidates format includes must-verify header",
+  candidates.includes("MUST verify or dismiss each"),
+);
+check(
+  "candidates format lists detected patterns",
+  candidates.includes("hardcoded-credential") || candidates.includes("eval-usage"),
+);
+check(
+  "empty hints produce empty candidates",
+  formatStaticHintsAsCandidates([]) === "",
+);
+
+// --- Static hint line numbers ----------------------------------------------
+const hintDiff = [
+  "diff --git a/src/eval/session.ts b/src/eval/session.ts",
+  "new file mode 100644",
+  "--- /dev/null",
+  "+++ b/src/eval/session.ts",
+  "@@ -0,0 +1,2 @@",
+  "+const first = 1;",
+  "+const second = 2;",
+  "@@ -10,4 +20,4 @@",
+  " context line",
+  "-const oldToken = Math.random();",
+  "+const newToken = Math.random();",
+  " context line",
+].join("\n");
+const hints = extractStaticHints(hintDiff);
+const randomHint = hints.find((hint) => hint.pattern === "weak-randomness-security");
+check(
+  "static hint uses the new-file hunk start line",
+  randomHint?.file === "src/eval/session.ts" && randomHint.line === 21,
+  randomHint,
 );
 
 console.log(`\n${passed} passed, ${failed} failed`);
