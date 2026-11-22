@@ -685,7 +685,11 @@ export const processPREvent = inngest.createFunction(
             });
 
             // Ask mode post-check bypass: user manually confirmed, run the review.
-            if (behaviorSettings.reviewMode === "ask" && action !== "review_confirmed") {
+            if (
+                behaviorSettings.reviewMode === "ask" &&
+                action !== "review_confirmed" &&
+                action !== "mention_rereview"
+            ) {
                 await step.run("Post awaiting-confirmation comment", async () => {
                     const octokit = await getPreferredOctokit(owner, repo, userId);
                     const headShaShort = headSha?.slice(0, 7);
@@ -885,7 +889,9 @@ export const processPREvent = inngest.createFunction(
                 return { skipped: true, reason: "free_commit_limit_exceeded", commits: commitPolicy.commits };
             }
 
-            if (effectiveHeadSha) {
+            // An explicit @codeturtle re-review must run even when this exact
+            // commit was already reviewed; the lock step reuses that record.
+            if (effectiveHeadSha && action !== "mention_rereview") {
                 const existingCompletedReviewForSha = await step.run("Check completed duplicate review for same head SHA", async () => {
                     return withPrismaRetry("find-completed-duplicate-review-by-sha", () =>
                         prisma.codeReview.findFirst({
@@ -958,6 +964,24 @@ export const processPREvent = inngest.createFunction(
                 }
 
                 try {
+                    if (action === "mention_rereview" && effectiveHeadSha) {
+                        const existing = await withPrismaRetry("find-review-to-refresh", () =>
+                            prisma.codeReview.findFirst({
+                                where: { userId, owner, repo, prNumber, sha: effectiveHeadSha },
+                                orderBy: { createdAt: "desc" },
+                                select: { id: true },
+                            }),
+                        );
+                        if (existing) {
+                            await withPrismaRetry("reuse-review-lock", () =>
+                                prisma.codeReview.update({
+                                    where: { id: existing.id },
+                                    data: { status: "processing", summary: "Review in progress..." },
+                                }),
+                            );
+                            return existing.id;
+                        }
+                    }
                     const created = await withPrismaRetry("create-processing-code-review", () =>
                         prisma.codeReview.create({
                             data: {
@@ -1933,7 +1957,7 @@ export const processPRMention = inngest.createFunction(
                             repo,
                             prNumber,
                             userId,
-                            action: "review_confirmed",
+                            action: "mention_rereview",
                             headSha: pr.head.sha,
                         },
                     });
