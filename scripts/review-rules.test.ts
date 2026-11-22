@@ -25,6 +25,7 @@ const {
 } = await import("../src/module/ai/lib/review");
 const { extractStaticHints, formatStaticHintsAsCandidates } = await import("../src/module/ai/lib/static-hints");
 const { reviewIcon, reviewCategoryIcon } = await import("../src/lib/review-icons");
+const { classifyMentionIntent } = await import("../src/lib/mention-intent");
 const {
   buildReviewDescriptionReport,
   upsertReviewDescription,
@@ -272,6 +273,18 @@ check("description refresh replaces old report only", refreshed.includes("Clean.
 check("description markers appear exactly once", (refreshed.match(/codeturtle-review-report:start/g) ?? []).length === 1);
 check("description update works with empty body", upsertReviewDescription(null, report).startsWith(REVIEW_REPORT_START));
 check("description report is length-bounded", buildReviewDescriptionReport({ ...reportInput, summary: "x".repeat(100000) }).length < 20000);
+
+// --- Mention intent routing ------------------------------------------------
+check("re-review with bug wording routes to re-review", classifyMentionIntent("re-review this PR and check for bugs") === "rereview");
+check("re-check routes to re-review", classifyMentionIntent("please re-check this PR") === "rereview");
+check("explicit review request routes to re-review", classifyMentionIntent("review this PR") === "rereview");
+check("fix PR command still wins", classifyMentionIntent("create a PR from the suggestions") === "create_fix_pr");
+check("diagram command", classifyMentionIntent("show me a diagram") === "diagram");
+check("issues command", classifyMentionIntent("any bugs here?") === "issues");
+check("summary command", classifyMentionIntent("give me a summary") === "summary");
+check("code question is not a greeting", classifyMentionIntent("why is the webhook scope so broad in this repo?") === "question");
+check("bare greeting", classifyMentionIntent("hi") === "greeting");
+check("bare mention", classifyMentionIntent("") === "empty");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

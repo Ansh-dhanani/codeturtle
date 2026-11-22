@@ -1,8 +1,6 @@
 
 import { prisma } from "@/lib/prisma";
 import { inngest } from "./client";
-import { generateText } from "ai";
-import { google } from "@ai-sdk/google";
 import { getRepoFileContentsFromOctokit } from "@/module/github/github";
 import { indexCodebase, deleteRepoVectors, queryCodebase } from "@/module/ai/lib/rag";
 import { createLogger } from "@/lib/logger";
@@ -14,6 +12,8 @@ import { getHumorLines } from "@/lib/review-humor";
 import { deriveReviewDecision, isReviewUnavailableError } from "@/module/ai/lib/review";
 import { getAppBaseUrl, reviewIcon, reviewCategoryIcon, SEP } from "@/lib/review-icons";
 import { buildReviewDescriptionReport, upsertReviewDescription } from "@/lib/review-description";
+import { classifyMentionIntent } from "@/lib/mention-intent";
+import { generateTextWithFreeFallback } from "@/lib/ai-text-fallback";
 
 type HumorScenario =
     | "success-clean"
@@ -381,12 +381,6 @@ function extractReviewSuggestions(files: Prisma.JsonValue | null): ReviewSuggest
             };
         })
         .filter((entry): entry is ReviewSuggestion => Boolean(entry));
-}
-
-function isCreateFixPrCommand(message: string): boolean {
-    const normalized = message.toLowerCase();
-    return /(make|create|open|raise)\s+(a\s+)?pr\b/.test(normalized)
-        && /(suggestion|suggestions|fix|fixes|changes)/.test(normalized);
 }
 
 async function createPRFromLatestSuggestions(params: {
@@ -1827,8 +1821,11 @@ export const processPRMention = inngest.createFunction(
                 cleanedPrompt.length > 0
                     ? cleanedPrompt
                     : "User mentioned @codeturtle without additional text. Ask what they need help with.";
+            const intent = classifyMentionIntent(cleanedPrompt);
+            const mentionPrefix = senderLogin ? `@${senderLogin} ` : "";
+            let responseText = "";
 
-            if (isCreateFixPrCommand(userPrompt)) {
+            if (intent === "create_fix_pr") {
                 let commandResult: Awaited<ReturnType<typeof createPRFromLatestSuggestions>>;
                 try {
                     commandResult = await createPRFromLatestSuggestions({
@@ -1859,7 +1856,6 @@ export const processPRMention = inngest.createFunction(
                     { enabled: behaviorSettings.memesEnabled, dedupeKey: humorDedupeKey },
                 );
 
-                const mentionPrefix = senderLogin ? `@${senderLogin} ` : "";
                 const body = [
                     "## CodeTurtle Reply",
                     "",
@@ -1895,128 +1891,115 @@ export const processPRMention = inngest.createFunction(
                 return;
             }
 
-            // Only respond to specific commands, otherwise use AI for casual response
-            const lower = userPrompt.toLowerCase();
-            const isDiagramCommand = /diagram|mermaid|flowchart|chart|visual|daigram|generate|visualize/i.test(lower);
-            const isMemeCommand = /meme|gif|funny|haha|lol/i.test(lower);
-            const isIssuesCommand = /issues|problems|bugs|errors|what.*wrong|what.*problem|list.*issues/i.test(lower);
-            const isSummaryCommand = /summary|overview|what.*do|explain.*pr/i.test(lower);
-            const isReviewCommand = /review|check|analyze|re-?check/i.test(lower);
+            const loadRagContext = async (query: string) => {
+                const dbRepo = await prisma.repository.findFirst({
+                    where: { owner, name: repo, userId },
+                    select: { id: true },
+                });
+                if (!dbRepo) return "";
+                const chunks = await queryCodebase(query, dbRepo.id, 6).catch(() => []);
+                return chunks.map((chunk) => `File: ${chunk.path}\n${chunk.content.slice(0, 800)}`).join("\n\n");
+            };
 
-            const mentionPrefix = senderLogin ? `@${senderLogin} ` : "";
-            let responseText = "";
-
-            // Track if this is an explicit command vs casual chat
-            const isExplicitCommand = isMemeCommand || isDiagramCommand || isIssuesCommand || isSummaryCommand || isReviewCommand;
-
-            if (isMemeCommand) {
-                // Context-aware meme selection based on actual meaning
-                const lower = userPrompt.toLowerCase();
-
-                // Map conversation to right meme scenario
-                // success-clean = happy, celebratory, friendly (greetings, thanks, funny)
-                // success-warning = light humor, friendly tease (curious, working)
-                // success-critical = sympathetic, understanding (problems, confusion)
-
-                let scenario: "success-clean" | "success-warning" | "success-critical" = "success-warning";
-
-                // Greetings first - friendly
-                if (/sup|hey|hello|hi|yo|wassup|what's up/i.test(lower)) {
-                    scenario = "success-clean"; // friendly greeting
-                } else if (/love|love you|love it/i.test(lower)) {
-                    scenario = "success-clean"; // heartfelt
-                } else if (/thanks|thank you|appreciate/i.test(lower)) {
-                    scenario = "success-clean"; // grateful
-                } else if (/good job|nice|awesome|cool|great|amazing/i.test(lower)) {
-                    scenario = "success-clean"; // positive
-                } else if (/funny|haha|lol|rofl|lmao|joke|\u{1F602}|\u{1F923}/iu.test(lower)) {
-                    scenario = "success-clean"; // laughing
-                } else if (/confused|don't get|don't understand|wait what/i.test(lower)) {
-                    scenario = "success-critical"; // puzzled/confused
-                } else if (/what\?|why|how|i don't know/i.test(lower)) {
-                    scenario = "success-warning"; // curious
-                } else if (/problem|issue|bug|error|wrong|broken|bad|shit/i.test(lower)) {
-                    scenario = "success-critical"; // empathetic
-                } else if (/haha|\u{1F602}|\u{1F923}/iu.test(lower)) {
-                    scenario = "success-clean"; // reacting to humor
-                } else if (/lol/i.test(lower)) {
-                    scenario = "success-clean"; // laughing
-                }
-
-                const memeHumor = await getHumorLines(
-                    scenario,
-                    undefined,
-                    { enabled: true, dedupeKey: `meme-${Date.now()}` },
-                );
-                responseText = memeHumor.length > 0 ? memeHumor.join("\n").replace("\n\n", "\n") : "Here is a meme for you!";
-            } else if (isDiagramCommand) {
-                const octokitForDiagram = await getPreferredOctokit(owner, repo, userId);
-
-                // Fetch PR files and diff in parallel
-                const [{ data: prFiles }, diffText] = await Promise.all([
-                    octokitForDiagram.rest.pulls.listFiles({ owner, repo, pull_number: prNumber }),
-                    octokitForDiagram
+            const loadDiff = async () => {
+                const [{ data: prFiles }, diffResult] = await Promise.all([
+                    octokit.rest.pulls.listFiles({ owner, repo, pull_number: prNumber }),
+                    octokit
                         .request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
                             owner,
                             repo,
                             pull_number: prNumber,
                             headers: { accept: "application/vnd.github.v3.diff" },
                         })
-                        .then((r) => r.data as unknown as string)
+                        .then((response) => response.data as unknown as string)
                         .catch(() => ""),
                 ]);
-
-                // Pull repo context from RAG
-                let ragContext = "";
-                const dbRepo = await prisma.repository.findFirst({
-                    where: { owner, name: repo, userId },
-                    select: { id: true },
-                });
-                if (dbRepo) {
-                    const changedFilenames = prFiles.map((f) => f.filename).join(", ");
-                    const ragResults = await queryCodebase(
-                        `Architecture, data flow, and module relationships for: ${changedFilenames}`,
-                        dbRepo.id,
-                        6,
-                    ).catch(() => []);
-                    ragContext = ragResults
-                        .map((r) => `File: ${r.path}\n${r.content.slice(0, 800)}`)
-                        .join("\n\n");
-                }
-
-                const fileList = prFiles
-                    .map((f) => `${f.status}: ${f.filename} (+${f.additions}/-${f.deletions})`)
-                    .join("\n");
-
-                const { text: rawDiagram } = await generateText({
-                    model: google("gemini-2.5-flash"),
-                    system: `You are a software architect. Generate a Mermaid diagram for the pull request changes described below.
-Rules:
-- Output ONLY raw Mermaid syntax - no code fences, no explanation, no prose
-- Use flowchart TD for component/module relationships or call graphs
-- Use sequenceDiagram for request/response flows, API chains, or async interactions
-- Max 12 nodes; labels at most 4 words using real names from the diff
-- Only show components directly touched by the changed files
-- Every arrow must represent actual data or control flow`,
-                    prompt: [
-                        `Changed files (${prFiles.length}):`,
-                        fileList,
-                        ragContext ? `\nCodebase context:\n${ragContext}` : "",
-                        diffText ? `\nDiff (excerpt):\n${diffText.slice(0, 4000)}` : "",
-                    ]
-                        .filter(Boolean)
+                return {
+                    prFiles,
+                    diffText: diffResult,
+                    fileList: prFiles
+                        .map((file) => `${file.status}: ${file.filename} (+${file.additions}/-${file.deletions})`)
                         .join("\n"),
-                    maxOutputTokens: 900,
-                });
+                };
+            };
 
-                const cleanDiagram = rawDiagram
-                    .replace(/```mermaid\n?/gi, "")
-                    .replace(/```\n?/g, "")
-                    .trim();
-
-                responseText = `Here's a diagram of the changes in this PR:\n\n\`\`\`mermaid\n${cleanDiagram}\n\`\`\``;
-            } else if (isIssuesCommand) {
-                // Get issues from stored review
+            if (intent === "rereview") {
+                try {
+                    const { data: pr } = await octokit.rest.pulls.get({ owner, repo, pull_number: prNumber });
+                    await inngest.send({
+                        name: "pull_request.opened",
+                        data: {
+                            owner,
+                            repo,
+                            prNumber,
+                            userId,
+                            action: "review_confirmed",
+                            headSha: pr.head.sha,
+                        },
+                    });
+                    responseText = `I've started a fresh review of this PR on commit \`${pr.head.sha.slice(0, 7)}\`. The full review will appear shortly.`;
+                } catch (err) {
+                    l.warn("Could not start re-review from mention", {
+                        owner,
+                        repo,
+                        prNumber,
+                        error: err instanceof Error ? err.message : "Unknown error",
+                    });
+                    responseText = "I couldn't start a fresh review right now. Please retry in a moment.";
+                }
+            } else if (intent === "meme") {
+                const lower = userPrompt.toLowerCase();
+                let scenario: "success-clean" | "success-warning" | "success-critical" = "success-warning";
+                if (/love|thanks|thank you|appreciate|good job|nice|awesome|cool|great|amazing|funny|haha|lol|rofl|lmao|joke|\u{1F602}|\u{1F923}/iu.test(lower)) {
+                    scenario = "success-clean";
+                } else if (/confused|don't get|don't understand|problem|issue|bug|error|wrong|broken|bad/i.test(lower)) {
+                    scenario = "success-critical";
+                }
+                const memeHumor = await getHumorLines(
+                    scenario,
+                    undefined,
+                    { enabled: behaviorSettings.memesEnabled, dedupeKey: `meme-${Date.now()}` },
+                );
+                responseText = memeHumor.length > 0 ? memeHumor.join("\n").replace("\n\n", "\n") : "Here's a meme for you!";
+            } else if (intent === "diagram") {
+                try {
+                    const { prFiles, diffText, fileList } = await loadDiff();
+                    const ragContext = await loadRagContext(
+                        `Architecture, data flow, and module relationships for: ${prFiles.map((file) => file.filename).join(", ")}`,
+                    );
+                    const { text: rawDiagram } = await generateTextWithFreeFallback({
+                        system: [
+                            "You are a software architect. Generate a Mermaid diagram for the pull request changes described below.",
+                            "Output ONLY raw Mermaid syntax - no code fences, no explanation, no prose.",
+                            "Use flowchart TD for component/module relationships or call graphs.",
+                            "Use sequenceDiagram for request/response flows or API chains.",
+                            "Max 12 nodes; labels at most 4 words using real names from the diff.",
+                            "Only show components directly touched by the changed files.",
+                            "Every arrow must represent actual data or control flow.",
+                        ].join("\n"),
+                        prompt: [
+                            `Changed files (${prFiles.length}):`,
+                            fileList,
+                            ragContext ? `\nCodebase context:\n${ragContext}` : "",
+                            diffText ? `\nDiff (excerpt):\n${diffText.slice(0, 4000)}` : "",
+                        ].filter(Boolean).join("\n"),
+                        maxOutputTokens: 900,
+                    });
+                    const cleanDiagram = rawDiagram
+                        .replace(/```mermaid\n?/gi, "")
+                        .replace(/```\n?/g, "")
+                        .trim();
+                    responseText = `Here's a diagram of the changes in this PR:\n\n\`\`\`mermaid\n${cleanDiagram}\n\`\`\``;
+                } catch (err) {
+                    l.warn("Mention diagram generation failed", {
+                        owner,
+                        repo,
+                        prNumber,
+                        error: err instanceof Error ? err.message : "Unknown error",
+                    });
+                    responseText = "I couldn't generate a diagram right now because all available models failed. Please retry shortly.";
+                }
+            } else if (intent === "issues") {
                 const review = await prisma.codeReview.findFirst({
                     where: { owner, repo, prNumber, userId, status: "completed" },
                     orderBy: { createdAt: "desc" },
@@ -2025,13 +2008,12 @@ Rules:
                 if (review?.files && typeof review.files === "object" && "issues" in review.files) {
                     const issues = (review.files as { issues: Array<{ title: string; file: string; severity: string }> }).issues;
                     responseText = issues.length > 0
-                        ? `Found ${issues.length} issues:\n${issues.slice(0, 5).map(i => `- ${i.title} (${i.severity}) in ${i.file}`).join("\n")}${issues.length > 5 ? `\n...and ${issues.length - 5} more` : ""}`
+                        ? `Found ${issues.length} issues:\n${issues.slice(0, 5).map((issue) => `- ${issue.title} (${issue.severity}) in ${issue.file}`).join("\n")}${issues.length > 5 ? `\n...and ${issues.length - 5} more` : ""}`
                         : "No issues found in the latest review.";
                 } else {
-                    responseText = "I don't have a completed review for this PR yet. Trigger a new review first.";
+                    responseText = "I don't have a completed review for this PR yet. Ask me to review it again first.";
                 }
-            } else if (isSummaryCommand || isReviewCommand) {
-                // Get summary from stored review
+            } else if (intent === "summary") {
                 const review = await prisma.codeReview.findFirst({
                     where: { owner, repo, prNumber, userId },
                     orderBy: { createdAt: "desc" },
@@ -2044,95 +2026,79 @@ Rules:
                         responseText = `**Score: ${score}/10**\n\n${responseText}`;
                     }
                 } else {
-                    responseText = "No review available for this PR yet.";
+                    responseText = "No review available for this PR yet. Ask me to review it again first.";
                 }
+            } else if (intent === "greeting") {
+                responseText = "Hey! I can summarize this PR, list its issues, draw a diagram, review it again, or answer a question about the code.";
+            } else if (intent === "empty") {
+                responseText = "What would you like me to do? I can summarize the PR, list issues, show a diagram, review it again, or answer a question about the code.";
             } else {
-                // Handle casual questions - RESPOND TO WHAT USER SAID, NOT ABOUT PR
-                // Make it actually vary by using different responses
-                const greetings = ["Yo!", "Hey!", "What's up!", "Hi there!", "Yo yo!", "Heyo!", "Sup!", "Hi!"];
-                const responses = [
-                    "What's good!", "All good here!", "Ready to roll!", "On it!",
-                    "Got you!", "Let's go!", "What's happening!", "Cool cool!"
-                ];
+                // Grounded code question: answer from PR diff, stored review,
+                // repository context and the surrounding discussion.
+                try {
+                    const [{ data: pr }, { prFiles, diffText, fileList }, discussion] = await Promise.all([
+                        octokit.rest.pulls.get({ owner, repo, pull_number: prNumber }),
+                        loadDiff(),
+                        octokit.rest.issues.listComments({ owner, repo, issue_number: prNumber, per_page: 10 })
+                            .then((result) => result.data
+                                .slice(-6)
+                                .map((comment) => `${comment.user?.login || "user"}: ${(comment.body || "").trim().slice(0, 500)}`)
+                                .join("\n"))
+                            .catch(() => ""),
+                    ]);
+                    const review = await prisma.codeReview.findFirst({
+                        where: { owner, repo, prNumber, userId },
+                        orderBy: { createdAt: "desc" },
+                        select: { summary: true, files: true },
+                    });
+                    const ragContext = await loadRagContext(userPrompt);
+                    const score = review?.files && typeof review.files === "object" && "overallScore" in review.files
+                        ? (review.files as { overallScore: number }).overallScore
+                        : null;
+                    const issues = review?.files && typeof review.files === "object" && "issues" in review.files
+                        ? (review.files as { issues: Array<{ title: string; severity: string; file?: string; description?: string }> }).issues
+                        : [];
+                    const context = [
+                        "# Pull request",
+                        `Title: ${pr.title || ""}`,
+                        `Description: ${(pr.body || "").slice(0, 2000)}`,
+                        `Changed files (${prFiles.length}):\n${fileList}`,
+                        diffText ? `\nDiff (excerpt):\n${diffText.slice(0, 12000)}` : "",
+                        review?.summary ? `\nLatest review score: ${score ?? "n/a"}/10\nReview summary: ${review.summary.slice(0, 2000)}` : "",
+                        issues.length > 0
+                            ? `\nReview findings:\n${issues.slice(0, 10).map((issue) => `- [${issue.severity}] ${issue.title} (${issue.file || "unknown"}): ${(issue.description || "").slice(0, 300)}`).join("\n")}`
+                            : "",
+                        discussion ? `\nRecent discussion:\n${discussion}` : "",
+                        ragContext ? `\nRepository context:\n${ragContext}` : "",
+                    ].filter(Boolean).join("\n");
 
-                // Pick randomly based on user input variation
-                const seed = userPrompt.length + userPrompt.charCodeAt(0);
-                const greeting = greetings[seed % greetings.length];
-
-                if (/hey|hi|hello|sup|yo/i.test(userPrompt)) {
-                    responseText = greeting;
-                } else {
-                    const response = responses[seed % responses.length];
-                    responseText = response;
+                    const { text } = await generateTextWithFreeFallback({
+                        system: [
+                            "You are CodeTurtle, an AI code reviewer replying inside a GitHub pull request.",
+                            "Answer the user's question accurately using ONLY the provided context.",
+                            "Cite file paths and line numbers when relevant. Never invent code, APIs, or findings.",
+                            "If the context does not contain the answer, say so plainly and suggest where to look.",
+                            "Be concise (at most 400 words) and professional. No emojis.",
+                        ].join("\n"),
+                        prompt: `${context}\n\nUser question: ${userPrompt}`,
+                        maxOutputTokens: 1400,
+                    });
+                    responseText = text;
+                } catch (err) {
+                    l.warn("Mention question answering failed", {
+                        owner,
+                        repo,
+                        prNumber,
+                        error: err instanceof Error ? err.message : "Unknown error",
+                    });
+                    responseText = "I couldn't generate an answer right now because all available models failed. Please retry shortly.";
                 }
             }
 
-            // Contextual memes ONLY for explicit commands - not casual chat
+            // Lightweight stored-answer commands may get a meme when enabled.
             let humorLines: string[] = [];
-
-            if (behaviorSettings.memesEnabled && isExplicitCommand) {
-                const lower = userPrompt.toLowerCase();
-
-                // Map conversation to meme categories based on keywords
-                let scenario: HumorScenario = "success-warning";
-
-                // user says love you / affectionate - map to success-clean for "celebrat" keyword
-                if (/love.*you|i love|love u|\u2764\uFE0F|iloveyou/iu.test(lower)) {
-                    scenario = "success-clean"; // matches "celebrat" in useWhen
-                }
-                // user gives compliment / thanks / appreciation
-                else if (/thanks|thank you|great job|awesome|amazing|good job|well done|nice work|you rock/i.test(lower)) {
-                    scenario = "success-clean"; // matches "celebrat" in useWhen
-                }
-                // user is sad / upset / disappointed
-                else if (/sad|upset|disappointed|\u{1F622}|crying|feeling.*down|not good|feeling.*bad/iu.test(lower)) {
-                    scenario = "success-critical"; // matches "sad" in keywords
-                }
-                // user says hi / hello / hey
-                else if (/^(hi|hello|hey|sup|yo|what'?s up|howdy|how.?s it|tgid)/i.test(lower)) {
-                    scenario = "success-clean"; // matches "celebrat" for friendly greeting
-                }
-                // user is happy / excited / celebrating
-                else if (/happy|excited|woohoo|yay|celebrat|\u{1F389}|good news|awesome sauce/iu.test(lower)) {
-                    scenario = "success-clean"; // matches "celebrat", "happy"
-                }
-                // user makes joke / is being funny
-                else if (/funny|haha|lol|lmao|\u{1F602}|rofl|\u{1F923}|joke|meme|got me/iu.test(lower)) {
-                    scenario = "success-warning"; // matches "funny" in keywords
-                }
-                // user insults CodeTurtle / is rude
-                else if (/stupid|dumb|idiot|garbage|trash|suck|worst|useless|shit.*bot|damn.*bot/i.test(lower)) {
-                    scenario = "success-critical"; // matches "bad", "poor"
-                }
-                // user says something useful / insightful
-                else if (/good point|interesting|insightful|smart|that'?s true|valid point|you'?re right/i.test(lower)) {
-                    scenario = "success-clean"; // matches "success" keyword
-                }
-                // user is confused / doesn't understand
-                else if (/confused|don'?t get|what\?|huh|unclear|doesn'?t make|i don'?t understand/i.test(lower)) {
-                    scenario = "in-progress"; // matches "analyz" for need to analyze more
-                }
-                // failure-auth: auth, token, credential
-                else if (/auth|token|credential|login|oauth|github.*connect|reconnect/i.test(lower)) {
-                    scenario = "failure-auth";
-                }
-                // failure-model: model, provider, endpoint
-                else if (/model|provider|endpoint|api.*key|api.*fail|gemini|openai|anthropic/i.test(lower)) {
-                    scenario = "failure-model";
-                }
-                // failure-rate-limit
-                else if (/rate.*limit|too.*many|quota.*exceed|too.*fast|throttle/i.test(lower)) {
-                    scenario = "failure-rate-limit";
-                }
-                // quota-limit
-                else if (/quota|wallet|plan.*limit|no.*credits|run.*out.*credit/i.test(lower)) {
-                    scenario = "quota-limit";
-                }
-                // failure-generic: fail, error
-                else if (/fail|error|broke|crash|broken|oops|something.*wrong/i.test(lower)) {
-                    scenario = "failure-generic";
-                }
-
+            if (behaviorSettings.memesEnabled && (intent === "summary" || intent === "issues")) {
+                const scenario: HumorScenario = intent === "issues" ? "success-warning" : "success-clean";
                 humorLines = await getHumorLines(
                     scenario,
                     undefined,
