@@ -1225,12 +1225,12 @@ export const processPREvent = inngest.createFunction(
                     "",
                     "| | |",
                     "| :- | :- |",
-                    `| **Score** | ${reviewIcon("code-quality", "Score", 16)} **${review.overallScore}/10** |`,
-                    `| **Reviewer** | ${reviewIcon("turtle", "Reviewer", 16)} \`${review.reviewerProvider}/${review.reviewerModel}\` |`,
-                    `| **Event** | ${reviewEvent === "REQUEST_CHANGES" ? `${reviewIcon("warning", "Changes requested", 16)} Changes requested` : `${reviewIcon("check", "Comment", 16)} Comment`} |`,
-                    `| **Issues** | ${reviewIcon("bug", "Issues", 16)} ${review.issues.length} |`,
-                    `| **Suggestions** | ${reviewIcon("autofix", "Suggestions", 16)} ${review.suggestions.length} |`,
-                    `| **Positives** | ${reviewIcon("positive", "Positives", 16)} ${review.positives.length} |`,
+                    `| **Score** | ${reviewIcon("code-quality", "Score", 18)} **${review.overallScore}/10** |`,
+                    `| **Reviewer** | ${reviewIcon("turtle", "Reviewer", 18)} \`${review.reviewerProvider}/${review.reviewerModel}\` |`,
+                    `| **Event** | ${reviewEvent === "REQUEST_CHANGES" ? `${reviewIcon("warning", "Changes requested", 18)} Changes requested` : `${reviewIcon("check", "Comment", 18)} Comment`} |`,
+                    `| **Issues** | ${reviewIcon("bug", "Issues", 18)} ${review.issues.length} |`,
+                    `| **Suggestions** | ${reviewIcon("autofix", "Suggestions", 18)} ${review.suggestions.length} |`,
+                    `| **Positives** | ${reviewIcon("positive", "Positives", 18)} ${review.positives.length} |`,
                     "",
                     `### ${reviewIcon("summary", "Summary")} Summary`,
                     "",
@@ -1240,8 +1240,8 @@ export const processPREvent = inngest.createFunction(
                         ? section(`${reviewIcon("bug", "Issues")} Issues (${review.issues.length})`,
                             review.issues.map((i) => {
                                 const iconName = sevIconName[i.severity] || "info";
-                                const sevIcon = reviewIcon(iconName, sevLabel[i.severity] || "Info", 16);
-                                const categoryIcon = reviewCategoryIcon(`${i.title} ${i.description} ${i.file}`);
+                                const sevIcon = reviewIcon(iconName, sevLabel[i.severity] || "Info", 18);
+                                const categoryIcon = reviewCategoryIcon(`${i.title} ${i.description} ${i.file}`, 18);
                                 const label = sevLabel[i.severity] || "Info";
                                 const hasDescription = i.description && i.description !== "No description provided.";
                                 const suggestionBlock =

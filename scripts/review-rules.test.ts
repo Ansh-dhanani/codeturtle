@@ -24,6 +24,7 @@ const {
   applySeverityPolicy,
 } = await import("../src/module/ai/lib/review");
 const { extractStaticHints, formatStaticHintsAsCandidates } = await import("../src/module/ai/lib/static-hints");
+const { reviewIcon, reviewCategoryIcon } = await import("../src/lib/review-icons");
 
 let passed = 0;
 let failed = 0;
@@ -217,6 +218,24 @@ check(
   "static hint uses the new-file hunk start line",
   randomHint?.file === "src/eval/session.ts" && randomHint.line === 21,
   randomHint,
+);
+
+// --- Review icon rendering ------------------------------------------------
+check(
+  "review icon is vertically centered in GitHub markdown",
+  reviewIcon("turtle", "CodeTurtle").includes('align="absmiddle"'),
+);
+check(
+  "review icon defaults to 18px",
+  reviewIcon("turtle", "CodeTurtle").includes('width="18" height="18"'),
+);
+check(
+  "review icon accepts a custom size",
+  reviewIcon("bug", "Issues", 16).includes('width="16" height="16"'),
+);
+check(
+  "category icon accepts a custom size",
+  reviewCategoryIcon("security vulnerability", 18).includes('width="18" height="18"'),
 );
 
 console.log(`\n${passed} passed, ${failed} failed`);

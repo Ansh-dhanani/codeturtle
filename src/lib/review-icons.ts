@@ -43,7 +43,9 @@ export const getAppBaseUrl = () =>
     ).replace(/\/+$/, "");
 
 export const reviewIcon = (name: ReviewIconName, alt: string, size = 18) =>
-    `<img src="${getAppBaseUrl()}/review-icons/${name}.svg" alt="${alt}" width="${size}" height="${size}" />`;
+    // `align="absmiddle"` survives GitHub's markdown sanitizer and vertically
+    // centers the icon with adjacent text. Inline `style` is stripped by GitHub.
+    `<img src="${getAppBaseUrl()}/review-icons/${name}.svg" alt="${alt}" width="${size}" height="${size}" align="absmiddle" />`;
 
 /** Non-breaking separator used in GitHub markdown tables and metadata lines. */
 export const SEP = "&nbsp;&middot;&nbsp;";
