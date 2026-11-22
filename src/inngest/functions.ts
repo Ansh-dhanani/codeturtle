@@ -14,6 +14,7 @@ import { getAppBaseUrl, reviewIcon, reviewCategoryIcon, SEP } from "@/lib/review
 import { buildReviewDescriptionReport, upsertReviewDescription } from "@/lib/review-description";
 import { classifyMentionIntent } from "@/lib/mention-intent";
 import { generateTextWithFreeFallback } from "@/lib/ai-text-fallback";
+import { sanitizeMermaidDiagram } from "@/lib/mermaid";
 
 type HumorScenario =
     | "success-clean"
@@ -1995,6 +1996,7 @@ export const processPRMention = inngest.createFunction(
                         system: [
                             "You are a software architect. Generate a Mermaid diagram for the pull request changes described below.",
                             "Output ONLY raw Mermaid syntax - no code fences, no explanation, no prose.",
+                            "Use only square-bracket nodes with quoted labels, e.g. A[\"charge(amount)\"]. Never put parentheses inside an unquoted label.",
                             "Use flowchart TD for component/module relationships or call graphs.",
                             "Use sequenceDiagram for request/response flows or API chains.",
                             "Max 12 nodes; labels at most 4 words using real names from the diff.",
@@ -2009,10 +2011,7 @@ export const processPRMention = inngest.createFunction(
                         ].filter(Boolean).join("\n"),
                         maxOutputTokens: 900,
                     });
-                    const cleanDiagram = rawDiagram
-                        .replace(/```mermaid\n?/gi, "")
-                        .replace(/```\n?/g, "")
-                        .trim();
+                    const cleanDiagram = sanitizeMermaidDiagram(rawDiagram);
                     responseText = `Here's a diagram of the changes in this PR:\n\n\`\`\`mermaid\n${cleanDiagram}\n\`\`\``;
                 } catch (err) {
                     l.warn("Mention diagram generation failed", {

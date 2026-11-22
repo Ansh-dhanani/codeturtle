@@ -26,6 +26,7 @@ const {
 const { extractStaticHints, formatStaticHintsAsCandidates } = await import("../src/module/ai/lib/static-hints");
 const { reviewIcon, reviewCategoryIcon } = await import("../src/lib/review-icons");
 const { classifyMentionIntent } = await import("../src/lib/mention-intent");
+const { sanitizeMermaidDiagram } = await import("../src/lib/mermaid");
 const {
   buildReviewDescriptionReport,
   upsertReviewDescription,
@@ -285,6 +286,15 @@ check("summary command", classifyMentionIntent("give me a summary") === "summary
 check("code question is not a greeting", classifyMentionIntent("why is the webhook scope so broad in this repo?") === "question");
 check("bare greeting", classifyMentionIntent("hi") === "greeting");
 check("bare mention", classifyMentionIntent("") === "empty");
+
+// --- Mermaid diagram sanitising -------------------------------------------
+const diagram = sanitizeMermaidDiagram(
+  "```mermaid\nflowchart TD\n    B[billing-check.js] --> S[STRIPE_SECRET]\n    B --> C[charge(amount)]\n```",
+);
+check("mermaid fences are stripped", !diagram.includes("```"));
+check("parenthesised node labels are quoted", diagram.includes('C["charge(amount)"]'));
+check("plain node labels are quoted too", diagram.includes('B["billing-check.js"]'));
+check("already quoted labels are preserved", sanitizeMermaidDiagram('flowchart TD\n A["x(y)"]') === 'flowchart TD\n A["x(y)"]');
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
