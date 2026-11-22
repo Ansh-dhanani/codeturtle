@@ -42,7 +42,7 @@ export const getAppBaseUrl = () =>
         "https://codeturtle-ai.vercel.app"
     ).replace(/\/+$/, "");
 
-export const reviewIcon = (name: ReviewIconName, alt: string, size = 18) =>
+export const reviewIcon = (name: ReviewIconName, alt: string, size = 20) =>
     // `align="absmiddle"` survives GitHub's markdown sanitizer and vertically
     // centers the icon with adjacent text. Inline `style` is stripped by GitHub.
     `<img src="${getAppBaseUrl()}/review-icons/${name}.svg" alt="${alt}" width="${size}" height="${size}" align="absmiddle" />`;

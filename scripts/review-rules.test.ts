@@ -226,8 +226,8 @@ check(
   reviewIcon("turtle", "CodeTurtle").includes('align="absmiddle"'),
 );
 check(
-  "review icon defaults to 18px",
-  reviewIcon("turtle", "CodeTurtle").includes('width="18" height="18"'),
+  "review icon defaults to 20px",
+  reviewIcon("turtle", "CodeTurtle").includes('width="20" height="20"'),
 );
 check(
   "review icon accepts a custom size",
