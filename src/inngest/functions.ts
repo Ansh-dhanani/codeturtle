@@ -1050,12 +1050,8 @@ export const processPREvent = inngest.createFunction(
                             },
                         }),
                     );
-                    if (processingReviewId) {
-                        await prisma.codeReview.update({
-                            where: { id: processingReviewId },
-                            data: { checkRunId: checkRun.id },
-                        });
-                    }
+                    // GitHub check-run IDs exceed 32-bit Int, so the ID is kept
+                    // in memory for this run instead of written to the Int column.
                     return checkRun.id;
                 } catch (err) {
                     l.warn("Failed to create GitHub check run; review will post without check status", {
@@ -1536,18 +1532,7 @@ export const processPREvent = inngest.createFunction(
 
             // Complete the GitHub check run with conclusion derived from the review.
             await step.run("Complete GitHub check run", async () => {
-                if (!checkRunId) {
-                    try {
-                        const octokit = await getPreferredOctokit(owner, repo, userId);
-                        await octokit.rest.issues.createComment({
-                            owner, repo, issue_number: prNumber,
-                            body: "<!-- codeturtle-check-debug -->Check completion skipped: checkRunId is null",
-                        });
-                    } catch {
-                        // diagnostic only
-                    }
-                    return;
-                }
+                if (!checkRunId) return;
                 try {
                     const octokit = await getPreferredOctokit(owner, repo, userId);
                     const decision = deriveReviewDecision(review);
@@ -1634,20 +1619,10 @@ export const processPREvent = inngest.createFunction(
                     }
                     if (!completed) throw new Error("Could not complete GitHub check run after payload degradation");
                 } catch (err) {
-                    const reason = err instanceof Error ? err.message : "Unknown error";
                     l.warn("Failed to complete GitHub check run", {
                         owner, repo, prNumber,
-                        error: reason,
+                        error: err instanceof Error ? err.message : "Unknown error",
                     });
-                    try {
-                        const octokit = await getPreferredOctokit(owner, repo, userId);
-                        await octokit.rest.issues.createComment({
-                            owner, repo, issue_number: prNumber,
-                            body: `<!-- codeturtle-check-debug -->Check completion failed: ${reason.slice(0, 400)}`,
-                        });
-                    } catch {
-                        // diagnostic only
-                    }
                 }
             });
 
