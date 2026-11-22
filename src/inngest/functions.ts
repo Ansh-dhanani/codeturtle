@@ -13,6 +13,7 @@ import { checkPerPRReviewLimit, checkUsageLimit, incrementUsage, isSpecialLimitl
 import { getHumorLines } from "@/lib/review-humor";
 import { deriveReviewDecision, isReviewUnavailableError } from "@/module/ai/lib/review";
 import { getAppBaseUrl, reviewIcon, reviewCategoryIcon, SEP } from "@/lib/review-icons";
+import { buildReviewDescriptionReport, upsertReviewDescription } from "@/lib/review-description";
 
 type HumorScenario =
     | "success-clean"
@@ -1444,6 +1445,41 @@ export const processPREvent = inngest.createFunction(
                 await withPrismaRetry("increment-usage", () => incrementUsage(userId));
                 l.info("PR review stored", { owner, repo, prNumber, score: review.overallScore });
             })
+
+            // Keep the PR description's managed review-report block in sync with
+            // the latest review. The author's own text is never overwritten.
+            await step.run("Update PR description with review report", async () => {
+                try {
+                    const octokit = await getPreferredOctokit(owner, repo, userId);
+                    const { data: pr } = await withGithubRetry("get-pr-for-description", () =>
+                        octokit.rest.pulls.get({ owner, repo, pull_number: prNumber }),
+                    );
+                    const report = buildReviewDescriptionReport({
+                        overallScore: review.overallScore,
+                        event: deriveReviewDecision(review).event,
+                        reviewerProvider: review.reviewerProvider,
+                        reviewerModel: review.reviewerModel,
+                        summary: review.summary,
+                        issues: review.issues,
+                        suggestions: review.suggestions,
+                        positives: review.positives,
+                        architectureNotes: review.architectureNotes,
+                        diagram: review.diagram,
+                        runId: reviewRunId,
+                    });
+                    const nextBody = upsertReviewDescription(pr.body, report);
+                    if (nextBody === (pr.body || "")) return;
+                    await withGithubRetry("update-pr-description", () =>
+                        octokit.rest.pulls.update({ owner, repo, pull_number: prNumber, body: nextBody }),
+                    );
+                    l.info("Updated PR description with review report", { owner, repo, prNumber, runId: reviewRunId });
+                } catch (err) {
+                    l.warn("Could not update PR description with review report", {
+                        owner, repo, prNumber,
+                        error: err instanceof Error ? err.message : "Unknown error",
+                    });
+                }
+            });
 
             // Mark the progress comment in a terminal state so it doesn't stay "In progress" forever
             await step.run("Mark progress comment complete", async () => {

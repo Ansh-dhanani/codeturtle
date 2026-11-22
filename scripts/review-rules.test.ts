@@ -25,6 +25,12 @@ const {
 } = await import("../src/module/ai/lib/review");
 const { extractStaticHints, formatStaticHintsAsCandidates } = await import("../src/module/ai/lib/static-hints");
 const { reviewIcon, reviewCategoryIcon } = await import("../src/lib/review-icons");
+const {
+  buildReviewDescriptionReport,
+  upsertReviewDescription,
+  REVIEW_REPORT_START,
+  REVIEW_REPORT_END,
+} = await import("../src/lib/review-description");
 
 let passed = 0;
 let failed = 0;
@@ -237,6 +243,35 @@ check(
   "category icon accepts a custom size",
   reviewCategoryIcon("security vulnerability", 18).includes('width="18" height="18"'),
 );
+
+// --- PR description report ------------------------------------------------
+const reportInput = {
+  overallScore: 4,
+  event: "REQUEST_CHANGES" as const,
+  reviewerProvider: "google",
+  reviewerModel: "gemini-2.5-flash",
+  summary: "Found a hardcoded secret in the billing helper.",
+  issues: [{ title: "Hardcoded credential", description: "STRIPE_SECRET is committed", severity: "critical", file: "src/billing.ts", line: 4 }],
+  suggestions: [{ title: "Use an environment variable", description: "Read from process.env", file: "src/billing.ts" }],
+  positives: ["Clear naming"],
+  runId: "review_test_1",
+};
+const report = buildReviewDescriptionReport(reportInput);
+check("description report includes verdict and summary", report.includes("**4/10**") && report.includes("Changes requested") && report.includes("hardcoded secret"));
+check("description report includes issue evidence", report.includes("[critical] Hardcoded credential") && report.includes("src/billing.ts"));
+check("description report explains what was checked", report.includes("What this review checked") && report.includes("severity policy"));
+
+const authorBody = "# My PR\n\nOriginal author description.";
+const updated = upsertReviewDescription(authorBody, report);
+check("description update preserves author text", updated.startsWith(authorBody));
+check("description update adds managed markers", updated.includes(REVIEW_REPORT_START) && updated.includes(REVIEW_REPORT_END));
+
+const secondReport = buildReviewDescriptionReport({ ...reportInput, overallScore: 9, summary: "Clean." });
+const refreshed = upsertReviewDescription(updated, secondReport);
+check("description refresh replaces old report only", refreshed.includes("Clean.") && !refreshed.includes("Found a hardcoded secret in the billing helper.") && refreshed.startsWith(authorBody));
+check("description markers appear exactly once", (refreshed.match(/codeturtle-review-report:start/g) ?? []).length === 1);
+check("description update works with empty body", upsertReviewDescription(null, report).startsWith(REVIEW_REPORT_START));
+check("description report is length-bounded", buildReviewDescriptionReport({ ...reportInput, summary: "x".repeat(100000) }).length < 20000);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
