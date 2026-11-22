@@ -1580,21 +1580,48 @@ export const processPREvent = inngest.createFunction(
                         });
                     }
 
-                    await withGithubRetry("complete-check-run", () =>
-                        octokit.rest.checks.update({
-                            owner,
-                            repo,
-                            check_run_id: checkRunId as number,
-                            status: "completed",
-                            conclusion,
-                            completed_at: new Date().toISOString(),
-                            output: {
-                                title: `CodeTurtle review: ${review.overallScore}/10${hasCritical ? " - critical issues found" : ""}`,
-                                summary: review.summary.slice(0, 60000),
-                                annotations: annotations.length > 0 ? annotations : undefined,
-                            },
-                        }),
-                    );
+                    // GitHub rejects annotations whose paths are not in the PR diff
+                    // (and occasionally rejects large annotation sets). Degrade the
+                    // payload instead of leaving the check stuck "in_progress".
+                    const payload = {
+                        owner,
+                        repo,
+                        check_run_id: checkRunId as number,
+                        status: "completed" as const,
+                        conclusion,
+                        completed_at: new Date().toISOString(),
+                    };
+                    const outputs = [
+                        {
+                            title: `CodeTurtle review: ${review.overallScore}/10${hasCritical ? " - critical issues found" : ""}`,
+                            summary: review.summary.slice(0, 60000),
+                            annotations: annotations.length > 0 ? annotations : undefined,
+                        },
+                        {
+                            title: `CodeTurtle review: ${review.overallScore}/10${hasCritical ? " - critical issues found" : ""}`,
+                            summary: review.summary.slice(0, 60000),
+                        },
+                        null,
+                    ];
+                    let completed = false;
+                    for (const output of outputs) {
+                        try {
+                            await withGithubRetry("complete-check-run", () =>
+                                octokit.rest.checks.update({
+                                    ...payload,
+                                    ...(output ? { output } : {}),
+                                }),
+                            );
+                            completed = true;
+                            break;
+                        } catch (updateErr) {
+                            l.warn("Check completion payload rejected; retrying with less detail", {
+                                owner, repo, prNumber,
+                                error: updateErr instanceof Error ? updateErr.message : "Unknown error",
+                            });
+                        }
+                    }
+                    if (!completed) throw new Error("Could not complete GitHub check run after payload degradation");
                 } catch (err) {
                     l.warn("Failed to complete GitHub check run", {
                         owner, repo, prNumber,
