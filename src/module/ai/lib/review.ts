@@ -701,6 +701,21 @@ export function deriveReviewDecision(review: {
 }
 
 /**
+ * GitHub rejects `REQUEST_CHANGES` on a pull request authored by the same
+ * GitHub App. CodeTurtle's generated fix PRs would otherwise fail to post.
+ * Findings are still published as a COMMENT and the check run still carries
+ * the real conclusion.
+ */
+export function resolveReviewEvent(
+  event: "REQUEST_CHANGES" | "COMMENT",
+  prAuthorLogin?: string | null,
+): "REQUEST_CHANGES" | "COMMENT" {
+  const login = (prAuthorLogin || "").toLowerCase();
+  const isSelf = login === "codeturtle-bot[bot]" || login === "codeturtle-bot";
+  return isSelf && event === "REQUEST_CHANGES" ? "COMMENT" : event;
+}
+
+/**
  * Deterministic severity policy. Upgrades severity when evidence indicates a
  * clear security vulnerability. Never downgrades. Model severity is retained
  * for all other findings.
@@ -1217,8 +1232,9 @@ TONE:
 
 Be specific, actionable, and constructive:
 - Reference exact file paths and line numbers whenever possible.
-- For every issue, supply a concrete, minimal suggested fix. If a fix changes code, include REAL code snippets in the suggestion (not pseudocode).
-- For "Suggestions", you MUST include working codeBefore and codeAfter (the exact snippet to replace and the exact replacement) whenever the change is mechanical. Only omit codeBefore/codeAfter when the suggestion is purely architectural/verbal and cannot be expressed as code.
+- For every issue, supply a concrete, minimal suggested fix. The issue "suggestion" field must be ONE SHORT SENTENCE of verbal guidance, never a code block or a replacement diff.
+- If the fix changes code, ALSO add a matching entry in "suggestions" for the same file with working "codeBefore" (exact snippet to replace) and "codeAfter" (exact replacement code). The inline GitHub suggestion is rendered from "codeAfter", so this is the ONLY way to propose actual code. Never put replacement code in the issue "suggestion" field.
+- Only omit codeBefore/codeAfter when the fix is purely architectural/verbal and cannot be expressed as code.
 - A suggested patch must actually differ from the original code. Never return an identical before/after pair.
 - Do NOT invent APIs, files, or functions that don't exist in the repository context. If unsure, say so in the issue description.
 - Prefer 2-5 high-impact, correct findings over a long list of nitpicks. Empty arrays are fine - an empty review is better than a padded one.

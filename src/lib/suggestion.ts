@@ -6,6 +6,22 @@
  * diff, so prose advice ("Never use alg: none...") would appear as proposed
  * code. When in doubt, render the advice as a blockquote instead.
  */
+/**
+ * Find the exact replacement snippet recorded for a finding's file.
+ * `suggestions[].codeAfter` is the structured code patch; `issue.suggestion`
+ * is only prose advice and must never be passed off as a GitHub diff.
+ */
+export function findCodeFix(
+    suggestions: Array<{ file?: string; codeBefore?: string; codeAfter?: string }>,
+    file: string,
+): string | null {
+    const match = suggestions.find((suggestion) => {
+        const after = suggestion.codeAfter?.trim();
+        return suggestion.file === file && Boolean(after) && after !== suggestion.codeBefore?.trim();
+    });
+    return match?.codeAfter?.trim() || null;
+}
+
 export function isCodeSuggestion(raw: string): boolean {
     const text = (raw || "")
         .trim()

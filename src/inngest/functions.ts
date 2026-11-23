@@ -9,13 +9,13 @@ import { Prisma } from "@prisma/client";
 import { Octokit } from "octokit";
 import { checkPerPRReviewLimit, checkUsageLimit, incrementUsage, isSpecialLimitlessUser } from "@/lib/billing.server";
 import { getHumorLines } from "@/lib/review-humor";
-import { deriveReviewDecision, isReviewUnavailableError } from "@/module/ai/lib/review";
+import { deriveReviewDecision, isReviewUnavailableError, resolveReviewEvent } from "@/module/ai/lib/review";
 import { getAppBaseUrl, reviewIcon, reviewCategoryIcon, SEP } from "@/lib/review-icons";
 import { buildReviewDescriptionReport, upsertReviewDescription } from "@/lib/review-description";
 import { classifyMentionIntent } from "@/lib/mention-intent";
 import { generateTextWithFreeFallback } from "@/lib/ai-text-fallback";
 import { sanitizeMermaidDiagram } from "@/lib/mermaid";
-import { isCodeSuggestion } from "@/lib/suggestion";
+import { findCodeFix, isCodeSuggestion } from "@/lib/suggestion";
 
 type HumorScenario =
     | "success-clean"
@@ -1189,7 +1189,8 @@ export const processPREvent = inngest.createFunction(
 
                 for (const issue of review.issues) {
                     if (issue.file && issue.line) {
-                        const codeFix = isCodeSuggestion(issue.suggestion);
+                        const exactFix = findCodeFix(review.suggestions, issue.file);
+                        const codeFix = exactFix || (isCodeSuggestion(issue.suggestion) ? issue.suggestion.trim() : null);
 
                         const hasDescription = issue.description && issue.description !== "No description provided.";
                         const body = [
@@ -1199,12 +1200,12 @@ export const processPREvent = inngest.createFunction(
                             hasDescription ? issue.description : "",
                             hasDescription ? "" : (issue.suggestion && issue.suggestion !== "No suggestion provided." ? issue.suggestion : ""),
                             "",
-                            issue.suggestion && issue.suggestion !== "No suggestion provided." && hasDescription
+                            hasDescription && (codeFix || (issue.suggestion && issue.suggestion !== "No suggestion provided."))
                                 ? [
-                                      "**Suggested fix:**",
+                                      exactFix ? "**Suggested change:**" : "**Suggested fix:**",
                                       "",
                                       codeFix
-                                          ? ["```suggestion", issue.suggestion.trim(), "```"].join("\n")
+                                          ? ["```suggestion", codeFix, "```"].join("\n")
                                           : issue.suggestion.trim().split("\n").map((line) => `> ${line}`).join("\n"),
                                   ].join("\n")
                                 : "",
@@ -1221,7 +1222,16 @@ export const processPREvent = inngest.createFunction(
                 }
 
                 const decision = deriveReviewDecision(review);
-                const reviewEvent = decision.event;
+                const prAuthor = await octokit.rest.pulls
+                    .get({ owner, repo, pull_number: prNumber })
+                    .then((response) => response.data.user?.login ?? null)
+                    .catch(() => null);
+                const reviewEvent = resolveReviewEvent(decision.event, prAuthor);
+                if (reviewEvent !== decision.event) {
+                    l.info("Downgraded REQUEST_CHANGES to COMMENT on CodeTurtle-authored PR", {
+                        owner, repo, prNumber, author: prAuthor,
+                    });
+                }
 
                 const sevIconName: Record<string, "severity-critical" | "warning" | "info"> = { critical: "severity-critical", warning: "warning", info: "info" };
                 const sevLabel: Record<string, string> = { critical: "Critical", warning: "Warning", info: "Info" };
@@ -1253,14 +1263,16 @@ export const processPREvent = inngest.createFunction(
                                 const categoryIcon = reviewCategoryIcon(`${i.title} ${i.description} ${i.file}`, 20);
                                 const label = sevLabel[i.severity] || "Info";
                                 const hasDescription = i.description && i.description !== "No description provided.";
+                                const exactFix = findCodeFix(review.suggestions, i.file);
+                                const codeFix = exactFix || (isCodeSuggestion(i.suggestion) ? i.suggestion.trim() : null);
                                 const suggestionBlock =
-                                    i.suggestion && i.suggestion !== "No suggestion provided." && hasDescription
+                                    hasDescription && (codeFix || (i.suggestion && i.suggestion !== "No suggestion provided."))
                                         ? [
                                             "<details>",
-                                            "<summary>Suggested change</summary>",
+                                            `<summary>${exactFix ? "Suggested change" : "Suggested fix"}</summary>`,
                                             "",
-                                            isCodeSuggestion(i.suggestion)
-                                                ? ["```suggestion", i.suggestion.trim(), "```"].join("\n")
+                                            codeFix
+                                                ? ["```suggestion", codeFix, "```"].join("\n")
                                                 : ["> " + i.suggestion.trim().split("\n").join("\n> ")].join("\n"),
                                             "",
                                             "</details>",

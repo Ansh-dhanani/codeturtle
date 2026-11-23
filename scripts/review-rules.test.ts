@@ -20,6 +20,7 @@ const {
   reconcileSummaryWithFindings,
   clampScoreToFindings,
   deriveReviewDecision,
+  resolveReviewEvent,
   stripEmojis,
   applySeverityPolicy,
 } = await import("../src/module/ai/lib/review");
@@ -27,7 +28,7 @@ const { extractStaticHints, formatStaticHintsAsCandidates } = await import("../s
 const { reviewIcon, reviewCategoryIcon } = await import("../src/lib/review-icons");
 const { classifyMentionIntent } = await import("../src/lib/mention-intent");
 const { sanitizeMermaidDiagram } = await import("../src/lib/mermaid");
-const { isCodeSuggestion } = await import("../src/lib/suggestion");
+const { isCodeSuggestion, findCodeFix } = await import("../src/lib/suggestion");
 const {
   buildReviewDescriptionReport,
   upsertReviewDescription,
@@ -183,6 +184,10 @@ check(
   applySeverityPolicy({ title: "Hardcoded secret", description: "password hardcoded", evidence: ["password = 'x'"], severity: "critical" }).severity === "critical",
 );
 
+check("own PR cannot request changes", resolveReviewEvent("REQUEST_CHANGES", "codeturtle-bot[bot]") === "COMMENT");
+check("other authors still get REQUEST_CHANGES", resolveReviewEvent("REQUEST_CHANGES", "octocat") === "REQUEST_CHANGES");
+check("own PR with COMMENT stays COMMENT", resolveReviewEvent("COMMENT", "codeturtle-bot[bot]") === "COMMENT");
+
 // --- Static hint candidates ------------------------------------------------
 const candidateHints = extractStaticHints([
   "diff --git a/src/auth/login.ts b/src/auth/login.ts",
@@ -318,6 +323,19 @@ check(
 check(
   "code-looking prose with e.g. is rejected",
   isCodeSuggestion("Use crypto.randomBytes (e.g., 16 bytes) for the token.") === false,
+);
+
+check(
+  "exact code patch is preferred over prose advice",
+  findCodeFix([{ file: "src/auth/session.ts", codeBefore: "Math.random()", codeAfter: "crypto.randomBytes(16).toString('hex')" }], "src/auth/session.ts") === "crypto.randomBytes(16).toString('hex')",
+);
+check(
+  "no patch for unrelated file",
+  findCodeFix([{ file: "src/other.ts", codeAfter: "x" }], "src/auth/session.ts") === null,
+);
+check(
+  "no-op patch is not a fix",
+  findCodeFix([{ file: "a.ts", codeBefore: "same", codeAfter: "same" }], "a.ts") === null,
 );
 
 console.log(`\n${passed} passed, ${failed} failed`);
