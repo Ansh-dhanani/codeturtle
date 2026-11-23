@@ -2008,26 +2008,35 @@ export const processPRMention = inngest.createFunction(
                     const ragContext = await loadRagContext(
                         `Architecture, data flow, and module relationships for: ${prFiles.map((file) => file.filename).join(", ")}`,
                     );
-                    const { text: rawDiagram } = await generateTextWithFreeFallback({
-                        system: [
-                            "You are a software architect. Generate a Mermaid diagram for the pull request changes described below.",
-                            "Output ONLY raw Mermaid syntax - no code fences, no explanation, no prose.",
-                            "Use only square-bracket nodes with quoted labels, e.g. A[\"charge(amount)\"]. Never put parentheses inside an unquoted label.",
-                            "Use flowchart TD for component/module relationships or call graphs.",
-                            "Use sequenceDiagram for request/response flows or API chains.",
-                            "Max 12 nodes; labels at most 4 words using real names from the diff.",
-                            "Only show components directly touched by the changed files.",
-                            "Every arrow must represent actual data or control flow.",
-                        ].join("\n"),
-                        prompt: [
-                            `Changed files (${prFiles.length}):`,
-                            fileList,
-                            ragContext ? `\nCodebase context:\n${ragContext}` : "",
-                            diffText ? `\nDiff (excerpt):\n${diffText.slice(0, 4000)}` : "",
-                        ].filter(Boolean).join("\n"),
-                        maxOutputTokens: 1600,
-                    });
-                    const cleanDiagram = sanitizeMermaidDiagram(rawDiagram);
+                    const diagramPrompt = [
+                        `Changed files (${prFiles.length}):`,
+                        fileList,
+                        ragContext ? `\nCodebase context:\n${ragContext}` : "",
+                        diffText ? `\nDiff (excerpt):\n${diffText.slice(0, 4000)}` : "",
+                    ].filter(Boolean).join("\n");
+                    let cleanDiagram = "";
+                    for (const attempt of [
+                        { maxOutputTokens: 1600, extra: "" },
+                        { maxOutputTokens: 2400, extra: "Retry: use at most 8 nodes with very short labels." },
+                    ]) {
+                        const { text: rawDiagram } = await generateTextWithFreeFallback({
+                            system: [
+                                "You are a software architect. Generate a Mermaid diagram for the pull request changes described below.",
+                                "Output ONLY raw Mermaid syntax - no code fences, no explanation, no prose.",
+                                "Use only square-bracket nodes with quoted labels, e.g. A[\"charge(amount)\"]. Never put parentheses inside an unquoted label.",
+                                "Use flowchart TD for component/module relationships or call graphs.",
+                                "Use sequenceDiagram for request/response flows or API chains.",
+                                "Max 12 nodes; labels at most 4 words using real names from the diff.",
+                                "Only show components directly touched by the changed files.",
+                                "Every arrow must represent actual data or control flow.",
+                                attempt.extra,
+                            ].filter(Boolean).join("\n"),
+                            prompt: diagramPrompt,
+                            maxOutputTokens: attempt.maxOutputTokens,
+                        });
+                        cleanDiagram = sanitizeMermaidDiagram(rawDiagram);
+                        if (cleanDiagram) break;
+                    }
                     responseText = cleanDiagram
                         ? `Here's a diagram of the changes in this PR:\n\n\`\`\`mermaid\n${cleanDiagram}\n\`\`\``
                         : "I couldn't generate a valid diagram for this PR. Please ask again.";
