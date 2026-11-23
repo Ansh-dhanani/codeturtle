@@ -18,5 +18,10 @@ export function sanitizeMermaidDiagram(raw: string): string {
         return `${id}["${safe}"]`;
     });
 
+    // A truncated model response must never be posted as a broken code block.
+    if (!/^(flowchart|graph|sequenceDiagram|classDiagram|erDiagram|journey|gantt)\b/m.test(text)) return "";
+    if ((text.match(/"/g) || []).length % 2 !== 0) return "";
+    if ((text.match(/\[/g) || []).length !== (text.match(/\]/g) || []).length) return "";
+
     return text;
 }

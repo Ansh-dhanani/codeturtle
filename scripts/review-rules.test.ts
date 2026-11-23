@@ -296,6 +296,7 @@ check("mermaid fences are stripped", !diagram.includes("```"));
 check("parenthesised node labels are quoted", diagram.includes('C["charge(amount)"]'));
 check("plain node labels are quoted too", diagram.includes('B["billing-check.js"]'));
 check("already quoted labels are preserved", sanitizeMermaidDiagram('flowchart TD\n A["x(y)"]') === 'flowchart TD\n A["x(y)"]');
+check("truncated diagrams are rejected", sanitizeMermaidDiagram('flowchart TD\n A["Auth Guard"]\n E["') === "");
 
 // --- Suggestion rendering --------------------------------------------------
 check(

@@ -2025,10 +2025,12 @@ export const processPRMention = inngest.createFunction(
                             ragContext ? `\nCodebase context:\n${ragContext}` : "",
                             diffText ? `\nDiff (excerpt):\n${diffText.slice(0, 4000)}` : "",
                         ].filter(Boolean).join("\n"),
-                        maxOutputTokens: 900,
+                        maxOutputTokens: 1600,
                     });
                     const cleanDiagram = sanitizeMermaidDiagram(rawDiagram);
-                    responseText = `Here's a diagram of the changes in this PR:\n\n\`\`\`mermaid\n${cleanDiagram}\n\`\`\``;
+                    responseText = cleanDiagram
+                        ? `Here's a diagram of the changes in this PR:\n\n\`\`\`mermaid\n${cleanDiagram}\n\`\`\``
+                        : "I couldn't generate a valid diagram for this PR. Please ask again.";
                 } catch (err) {
                     l.warn("Mention diagram generation failed", {
                         owner,
