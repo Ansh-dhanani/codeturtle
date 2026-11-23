@@ -27,6 +27,7 @@ const { extractStaticHints, formatStaticHintsAsCandidates } = await import("../s
 const { reviewIcon, reviewCategoryIcon } = await import("../src/lib/review-icons");
 const { classifyMentionIntent } = await import("../src/lib/mention-intent");
 const { sanitizeMermaidDiagram } = await import("../src/lib/mermaid");
+const { isCodeSuggestion } = await import("../src/lib/suggestion");
 const {
   buildReviewDescriptionReport,
   upsertReviewDescription,
@@ -295,6 +296,28 @@ check("mermaid fences are stripped", !diagram.includes("```"));
 check("parenthesised node labels are quoted", diagram.includes('C["charge(amount)"]'));
 check("plain node labels are quoted too", diagram.includes('B["billing-check.js"]'));
 check("already quoted labels are preserved", sanitizeMermaidDiagram('flowchart TD\n A["x(y)"]') === 'flowchart TD\n A["x(y)"]');
+
+// --- Suggestion rendering --------------------------------------------------
+check(
+  "prose advice is never a GitHub suggestion block",
+  isCodeSuggestion('Never use "alg: none" for JWTs in production. Always use a strong cryptographic algorithm (e.g., HS256, RS256) and ensure tokens are signed.') === false,
+);
+check(
+  "short prose advice is not code",
+  isCodeSuggestion("Use parameterized queries.") === false,
+);
+check(
+  "real one-line code fix is accepted",
+  isCodeSuggestion('return role === "admin";') === true,
+);
+check(
+  "multi-token code fix is accepted",
+  isCodeSuggestion('const token = crypto.randomBytes(16).toString("hex");') === true,
+);
+check(
+  "code-looking prose with e.g. is rejected",
+  isCodeSuggestion("Use crypto.randomBytes (e.g., 16 bytes) for the token.") === false,
+);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

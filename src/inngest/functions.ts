@@ -15,6 +15,7 @@ import { buildReviewDescriptionReport, upsertReviewDescription } from "@/lib/rev
 import { classifyMentionIntent } from "@/lib/mention-intent";
 import { generateTextWithFreeFallback } from "@/lib/ai-text-fallback";
 import { sanitizeMermaidDiagram } from "@/lib/mermaid";
+import { isCodeSuggestion } from "@/lib/suggestion";
 
 type HumorScenario =
     | "success-clean"
@@ -1188,9 +1189,7 @@ export const processPREvent = inngest.createFunction(
 
                 for (const issue of review.issues) {
                     if (issue.file && issue.line) {
-                        const feelsLikeCode =
-                            /[;{}()\n=>]/.test(issue.suggestion) &&
-                            issue.suggestion.trim().split("\n").length <= 40;
+                        const codeFix = isCodeSuggestion(issue.suggestion);
 
                         const hasDescription = issue.description && issue.description !== "No description provided.";
                         const body = [
@@ -1200,21 +1199,15 @@ export const processPREvent = inngest.createFunction(
                             hasDescription ? issue.description : "",
                             hasDescription ? "" : (issue.suggestion && issue.suggestion !== "No suggestion provided." ? issue.suggestion : ""),
                             "",
-                            issue.suggestion && issue.suggestion !== "No suggestion provided." && hasDescription ? (
-                                feelsLikeCode && issue.suggestion.trim().split("\n").length === 1
-                                    ? [
-                                          "**Suggested change:**",
-                                          "```suggestion",
-                                          issue.suggestion.trim(),
-                                          "```",
-                                      ].join("\n")
-                                    : [
-                                          "**Suggested fix:**",
-                                          /[;{}()\n=>]|\b(const|let|var|function|return|import|from)\b/.test(issue.suggestion)
-                                              ? ["```suggestion", issue.suggestion.trim(), "```"].join("\n")
-                                              : "> " + issue.suggestion.trim().split("\n").join("\n> "),
-                                      ].join("\n")
-                            ) : "",
+                            issue.suggestion && issue.suggestion !== "No suggestion provided." && hasDescription
+                                ? [
+                                      "**Suggested fix:**",
+                                      "",
+                                      codeFix
+                                          ? ["```suggestion", issue.suggestion.trim(), "```"].join("\n")
+                                          : issue.suggestion.trim().split("\n").map((line) => `> ${line}`).join("\n"),
+                                  ].join("\n")
+                                : "",
                         ]
                             .filter(Boolean)
                             .join("\n");
