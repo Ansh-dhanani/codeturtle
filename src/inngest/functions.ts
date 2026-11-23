@@ -1259,7 +1259,7 @@ export const processPREvent = inngest.createFunction(
                                             "<details>",
                                             "<summary>Suggested change</summary>",
                                             "",
-                                            /[;{}()\n=>]|\b(const|let|var|function|return|import|from)\b/.test(i.suggestion)
+                                            isCodeSuggestion(i.suggestion)
                                                 ? ["```suggestion", i.suggestion.trim(), "```"].join("\n")
                                                 : ["> " + i.suggestion.trim().split("\n").join("\n> ")].join("\n"),
                                             "",
